@@ -2,8 +2,14 @@ import { createApp } from '@backstage/frontend-defaults';
 import {
   coreExtensionData,
   createFrontendModule,
+  discoveryApiRef,
+  fetchApiRef,
+  identityApiRef,
 } from '@backstage/frontend-plugin-api';
+import { scmIntegrationsApiRef } from '@backstage/integration-react';
 import scaffolderPlugin from '@backstage/plugin-scaffolder/alpha';
+import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
+import { PollingScaffolderClient } from './taskEventPolling';
 import { WorkflowTasks } from './WorkflowTasks';
 import { SignInPageBlueprint } from '@backstage/plugin-app-react';
 import { PasswordSignInPage } from './PasswordSignInPage';
@@ -26,6 +32,20 @@ const signInPage = SignInPageBlueprint.make({
 // Override only the task sub-page, preserving all default fields and task UI.
 const scaffolder = scaffolderPlugin.withOverrides({
   extensions: [
+    // Long-poll task events instead of SSE (see taskEventPolling.ts, incl. how to revert).
+    scaffolderPlugin.getExtension('api:scaffolder').override({
+      params: defineParams =>
+        defineParams({
+          api: scaffolderApiRef,
+          deps: {
+            discoveryApi: discoveryApiRef,
+            scmIntegrationsApi: scmIntegrationsApiRef,
+            fetchApi: fetchApiRef,
+            identityApi: identityApiRef,
+          },
+          factory: deps => new PollingScaffolderClient(deps),
+        }),
+    }),
     scaffolderPlugin.getExtension('sub-page:scaffolder/tasks').override({
       factory(originalFactory) {
         const original = originalFactory();

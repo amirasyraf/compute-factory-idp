@@ -1,5 +1,6 @@
 // Exercise the actual served frontend with fixture APIs only. No login credentials,
 // workflow dispatches, VM creation or backend writes. Run against local or deployed UI.
+import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, expect } from '@playwright/test';
 
 const base = process.env.WORKFLOW_UI_URL;
@@ -69,6 +70,8 @@ const stage = (name, status, steps = []) => ({
   completedAt: null,
   steps,
 });
+let revision = 1;
+let streamRequests = 0;
 let snapshot = {
   version: 1,
   operation: 'provision',
@@ -127,7 +130,16 @@ try {
           result: 'ALLOW',
         })),
       };
-    } else if (path.endsWith('/eventstream') || path.endsWith('/events')) {
+    } else if (path.endsWith('/eventstream')) {
+      // The app must long-poll /events; SSE is buffered by corporate TLS proxies.
+      streamRequests++;
+      await route.fulfill({ status: 500, json: { error: 'SSE not expected' } });
+      return;
+    } else if (path.endsWith('/events')) {
+      // Long-poll fixture: return events newer than `after`, else a short idle wait and [].
+      const after = Number(
+        new URL(route.request().url()).searchParams.get('after') ?? 0,
+      );
       const events = [
         {
           id: 1,
@@ -140,7 +152,7 @@ try {
           },
         },
         {
-          id: 2,
+          id: 1 + revision,
           type: 'log',
           body: {
             stepId: 'monitor',
@@ -148,19 +160,15 @@ try {
             message: `CF_WORKFLOW_PROGRESS_V1 ${JSON.stringify(snapshot)}`,
           },
         },
-      ].map(event => ({
-        ...event,
-        taskId: task.id,
-        createdAt: '2026-11-15T00:00:01Z',
-      }));
-      await route.fulfill({
-        contentType: 'text/event-stream',
-        body: events
-          .map(
-            event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
-          )
-          .join(''),
-      });
+      ]
+        .filter(event => event.id > after)
+        .map(event => ({
+          ...event,
+          taskId: task.id,
+          createdAt: '2026-11-15T00:00:01Z',
+        }));
+      if (!events.length) await delay(500);
+      await route.fulfill({ json: events }).catch(() => {});
       return;
     } else if (path.includes(`/tasks/${task.id}`)) {
       json = task;
@@ -220,9 +228,12 @@ try {
           : job.status,
     })),
   };
-  await page.reload();
+  revision++;
+  // No reload: the long-poll loop must pick up the new snapshot on its own.
   await expect(graph.getByText('failure', { exact: true })).toBeVisible();
   await expect(graph.getByText('skipped', { exact: true })).toBeVisible();
+  if (streamRequests)
+    throw new Error(`Task page opened ${streamRequests} SSE stream(s)`);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(graph).toBeVisible();
   const overflows = await graph.evaluate(el => el.scrollWidth > el.clientWidth);
@@ -230,7 +241,7 @@ try {
     throw new Error('Stage graph should scroll on narrow screens');
   assertNoErrors(errors);
   console.log(
-    'WORKFLOW UI PASS: pre-GHA mock REST step, stages, expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
+    'WORKFLOW UI PASS: pre-GHA mock REST step, stages, live long-poll update (no SSE), expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/catalog`);

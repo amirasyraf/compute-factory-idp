@@ -55,6 +55,14 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   observed state with a warning; cancellation does not imply that the GitHub workflow was cancelled.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
+- `packages/app/src/taskEventPolling.ts`: the task page receives task events by **long polling**
+  `GET /api/scaffolder/v2/tasks/<id>/events` (Backstage's documented alternative), not the default SSE
+  `/eventstream`. TLS-inspecting corporate proxies (Netskope observed) buffer the never-ending SSE
+  response, leaving the task page blank while home-page polling still works. A poll returns as soon as
+  new events exist (the backend checks about every second) or with `[]` after 30 seconds. Failed polls
+  retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
+  reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
+  `App.tsx` and this file.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
 - `deploy/`: Caddy, Postgres and the backend/frontend bundle in Docker Compose.
 
@@ -274,6 +282,8 @@ the arm64 image; it never copies macOS node_modules. `openssh-client` is present
 This POC does not use unit-test scaffolding. Verification uses static checks, the platform's existing
 offline workflow integration check, and focused browser smoke checks. Browser checks exercise
 expandable steps and unchanged task controls; fixture data alone does not verify a real VM run.
+The task fixture serves `/events` as a long-poll endpoint, fails if the page opens `/eventstream`, and
+checks that a changed workflow snapshot appears without a page reload.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state. It also checks the
 Resource catalog default, normal-user kind restrictions, admin kind selection/deep links, the VM
