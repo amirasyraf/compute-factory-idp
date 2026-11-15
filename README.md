@@ -306,6 +306,8 @@ export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
 WORKFLOW_UI_URL=https://idp.amirasyraf.dev mise exec -- node scripts/workflow-ui.mjs
+CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../compute-factory/.poc-passwords | cut -d: -f2-)" \
+  mise exec -- node scripts/live-check.mjs
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
 GITHUB_TOKEN="$(gh auth token)" mise exec -- node scripts/smoke.mjs
@@ -322,7 +324,10 @@ checks that a changed workflow snapshot appears without a page reload. Against a
 frontend it also simulates a deploy and checks that the new-version banner appears; on the dev
 server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
-frontend without signing in, dispatching a workflow or changing backend state. It also checks the
+frontend without signing in, dispatching a workflow or changing backend state.
+`scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's
+gitignored `.poc-passwords`) and checks, read-only, the request form's live instance types and AWS
+specs and that the newest own task page receives events by long polling. Run it after every deploy. It also checks the
 Resource catalog default, normal-user kind restrictions, admin kind selection/deep links, the VM
 card, and the home page's VM table, pipeline line, next action and empty filter state.
 
