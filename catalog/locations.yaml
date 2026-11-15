@@ -4,6 +4,9 @@ metadata:
   name: cf-vms
 spec:
   type: url
+  # No VMs left is a valid state: an empty glob must succeed so the last
+  # destroyed VM is orphaned and deleted, not kept by a processing error.
+  presence: optional
   targets:
     - https://github.com/amirasyraf/compute-factory-platform/blob/main/vms/*/catalog-info.yaml
 ---

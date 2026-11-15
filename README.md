@@ -147,8 +147,11 @@ Source inspection against Backstage tag `v1.56.0`:
   `formData` from the URL. Card links prefill `{ "vm": "resource:default/name" }`.
 - Catalog `UrlReaderProcessor` calls URL reader `search`; `GithubUrlReader`
   supports globs. `catalog/locations.yaml` registers **cf-vms** exactly, plus
-  the platform templates glob. Empty `vms/` may report “no matching files found”
-  until the first VM exists; the Location entity still exists and is refreshable.
+  the platform templates glob. **cf-vms** sets `presence: optional`: with a
+  required location, an empty `vms/` fails with “no matching files found”, and a
+  failed location keeps its previous children, so destroying the last VM left it
+  in the catalog as `destroying`. Optional presence makes the empty glob succeed,
+  so the removed VM is orphaned and deleted (`orphanStrategy: delete`).
 
 These are upstream-source guarantees, not a claim that cross-team browser flows
 have been exercised on the real deployed POC. The first-deploy E2E must verify
