@@ -11,6 +11,7 @@ import vmStatus from '@internal/plugin-vm-status';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import { navModule } from './modules/nav';
 import { homeModule } from './modules/home';
+import { CatalogKindFilter } from './CatalogKindFilter';
 
 const signInPage = SignInPageBlueprint.make({
   params: {
@@ -37,9 +38,17 @@ const scaffolder = scaffolderPlugin.withOverrides({
     }),
   ],
 });
+
+const catalog = catalogPlugin.withOverrides({
+  extensions: [
+    catalogPlugin.getExtension('catalog-filter:catalog/kind').override({
+      params: { loader: async () => <CatalogKindFilter /> },
+    }),
+  ],
+});
 export default createApp({
   features: [
-    catalogPlugin,
+    catalog,
     scaffolder,
     vmStatus,
     navModule,

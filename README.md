@@ -28,7 +28,12 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
 `app.extensions.page:home` mounts Home at `/`, with the Compute Factory card as
-the default layout. Catalog keeps its default `/catalog` route.
+the default layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
+`CatalogKindFilter.tsx` gives normal users only the Resource kind, including normalization of
+non-Resource catalog filter URLs. Members of `group:default/platform-admins` retain the full kind
+picker and explicit kind links. This is a catalog-list UI restriction, not an API permission change:
+User/Group entities remain readable for sign-in, ownership and template team pickers. Direct entity
+pages continue to use existing catalog permissions. `amirasyraf` remains a normal alpha-team user.
 
 ## Users and teams
 
@@ -171,7 +176,8 @@ stored snapshot parsing, timing and the watcher-to-frontend protocol. Browser ch
 exercise expandable steps and the unchanged task controls against the deployed frontend; fixture
 data alone does not verify a real VM provisioning run.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
-frontend without signing in, dispatching a workflow or changing backend state.
+frontend without signing in, dispatching a workflow or changing backend state. It also checks the
+Resource catalog default, normal-user kind restrictions, and admin kind selection/deep links.
 
 ## Deploy
 

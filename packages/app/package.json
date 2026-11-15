@@ -23,6 +23,7 @@
     "@backstage/plugin-app-react": "^0.2.8",
     "@backstage/plugin-auth": "^0.1.13",
     "@backstage/plugin-catalog": "^2.0.10",
+    "@backstage/plugin-catalog-react": "^3.3.0",
     "@backstage/plugin-home": "^0.9.11",
     "@backstage/plugin-home-react": "^0.1.43",
     "@backstage/plugin-org": "^0.8.0",

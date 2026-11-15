@@ -8383,6 +8383,7 @@ __metadata:
     "@backstage/plugin-app-react": "npm:^0.2.8"
     "@backstage/plugin-auth": "npm:^0.1.13"
     "@backstage/plugin-catalog": "npm:^2.0.10"
+    "@backstage/plugin-catalog-react": "npm:^3.3.0"
     "@backstage/plugin-home": "npm:^0.9.11"
     "@backstage/plugin-home-react": "npm:^0.1.43"
     "@backstage/plugin-org": "npm:^0.8.0"

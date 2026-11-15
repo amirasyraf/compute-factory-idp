@@ -4,6 +4,7 @@ import { chromium, expect } from '@playwright/test';
 
 const base = process.env.WORKFLOW_UI_URL;
 if (!base) throw new Error('Set WORKFLOW_UI_URL to the frontend URL');
+let admin = false;
 const template = {
   apiVersion: 'scaffolder.backstage.io/v1beta3',
   kind: 'Template',
@@ -89,6 +90,7 @@ try {
             ownershipEntityRefs: [
               'user:default/amirasyraf',
               'group:default/alpha',
+              ...(admin ? ['group:default/platform-admins'] : []),
             ],
           },
         },
@@ -127,6 +129,16 @@ try {
       return;
     } else if (path.includes(`/tasks/${task.id}`)) {
       json = task;
+    } else if (path.endsWith('/entity-facets')) {
+      json = {
+        facets: {
+          kind: ['Resource', 'Group', 'User', 'Template', 'Location'].map(
+            value => ({ value, count: 1 }),
+          ),
+        },
+      };
+    } else if (path.endsWith('/entities/by-query')) {
+      json = { items: [], totalItems: 0, pageInfo: {} };
     } else if (path.endsWith('/entities/by-refs')) {
       json = { items: [template] };
     } else if (path.includes('/entities/by-name/')) {
@@ -173,6 +185,37 @@ try {
   assertNoErrors(errors);
   console.log(
     'WORKFLOW UI PASS: stages, expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
+  );
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto(`${base}/catalog`);
+  const kind = page
+    .getByText('Kind', { exact: true })
+    .locator('..')
+    .getByRole('button');
+  await expect(kind).toHaveText('Resource');
+  await kind.click();
+  await expect(page.getByRole('option')).toHaveCount(1);
+  await expect(
+    page.getByRole('option', { name: 'Resource', exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.goto(`${base}/catalog?filters%5Bkind%5D=group`);
+  await expect(kind).toHaveText('Resource');
+  await expect(page).toHaveURL(/filters%5Bkind%5D=resource/);
+  admin = true;
+  await page.goto(`${base}/catalog`);
+  await expect(kind).toHaveText('Resource');
+  await kind.click();
+  await expect(
+    page.getByRole('option', { name: 'Group', exact: true }),
+  ).toBeVisible();
+  await page.getByRole('option', { name: 'Group', exact: true }).click();
+  await expect(kind).toHaveText('Group');
+  await page.goto(`${base}/catalog?filters%5Bkind%5D=user`);
+  await expect(kind).toHaveText('User');
+  assertNoErrors(errors);
+  console.log(
+    'CATALOG UI PASS: Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
   );
 } finally {
   await browser.close();
