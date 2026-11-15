@@ -180,7 +180,10 @@ surfaces are not guaranteed to be SSH-only.
 **The Aligned Numerals Rule.** Tabular numerals are scoped by global CSS to
 `table` and `time`, not the entire application. Do not apply them globally to
 Schibsted Grotesk; they also change punctuation widths. Existing timestamp text
-outside those elements does not automatically receive tabular numerals.
+outside those elements does not automatically receive tabular numerals. Backstage
+key/value metadata tables (template review step, metadata cards) opt back out to
+normal numerals, and their label column shrinks to its text so each value sits
+beside its label.
 
 ## Layout
 

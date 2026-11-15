@@ -155,6 +155,19 @@ const theme = createUnifiedTheme({
         h5: { fontSize: 15, fontWeight: 700, letterSpacing: '-0.005em' },
       },
     },
+    // Key/value tables (template review step, metadata cards): the label column
+    // hugs its text so values sit next to their labels, and values keep normal
+    // numerals so refs like "resource:default/test" are not spaced out.
+    BackstageMetadataTableTitleCell: {
+      styleOverrides: {
+        root: { width: '1%', fontVariantNumeric: 'normal' },
+      },
+    },
+    BackstageMetadataTableCell: {
+      styleOverrides: {
+        root: { fontVariantNumeric: 'normal' },
+      },
+    },
     BackstageHighlightedSearchResultText: {
       styleOverrides: {
         highlight: {
