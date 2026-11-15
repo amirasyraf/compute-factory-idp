@@ -9,7 +9,7 @@ import { ComputeFactoryPolicy } from './policy';
 import { createSshSignAction } from './sign';
 import { authProvidersExtensionPoint } from '@backstage/plugin-auth-node';
 import { passwordProviderFactory } from './auth';
-import { createVmWatchAction } from './watch';
+import { createWorkflowWatchAction } from './watch';
 
 export const passwordAuthModule = createBackendModule({
   pluginId: 'auth',
@@ -53,7 +53,7 @@ export const sshModule = createBackendModule({
       async init({ actions, catalog, auth }) {
         actions.addActions(
           createSshSignAction(catalog, auth),
-          createVmWatchAction(catalog, auth),
+          createWorkflowWatchAction(),
         );
       },
     });

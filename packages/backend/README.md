@@ -1,14 +1,8 @@
-# example-backend
+# Compute Factory backend
 
-This package is an EXAMPLE of a Backstage backend.
-
-The main purpose of this package is to provide a test bed for Backstage plugins
-that have a backend part. Feel free to experiment locally or within your fork by
-adding dependencies and routes to this backend, to try things out.
-
-Our goal is to eventually amend the create-app flow of the CLI, such that a
-production ready version of a backend skeleton is made alongside the frontend
-app. Until then, feel free to experiment here!
+This package assembles the Compute Factory Backstage backend. Custom behavior lives in
+`plugins/cf-backend`; the runtime provides password authentication, team permissions,
+SSH certificate signing, and workflow progress streaming.
 
 ## Development
 
@@ -44,14 +38,8 @@ like, and also override them for local development in `app-config.local.yaml`.
 
 ## Authentication
 
-We chose [Passport](http://www.passportjs.org/) as authentication platform due
-to its comprehensive set of supported authentication
-[strategies](http://www.passportjs.org/packages/).
-
-Read more about the
-[auth-backend](https://github.com/backstage/backstage/blob/master/plugins/auth-backend/README.md)
-and
-[how to add a new provider](https://github.com/backstage/backstage/blob/master/docs/auth/add-auth-provider.md)
+The POC uses the custom username/password provider in `plugins/cf-backend`. Password hashes are supplied
+through `IDP_USERS_B64`; sessions are signed and backed by an HttpOnly cookie.
 
 ## Documentation
 

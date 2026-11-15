@@ -1,120 +1,138 @@
-import { Entity } from '@backstage/catalog-model';
-import { AuthService } from '@backstage/backend-plugin-api';
-import { CatalogService } from '@backstage/plugin-catalog-node';
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 
-export const PIPELINE_PROCESSES = [
-  'validate',
-  'register',
-  'provision',
-  'fry-baseline',
-  'fry-software',
-  'fry-ad-join',
-  'fry-access',
-  'finalize',
-  'on-failure',
-] as const;
-
-type ProcessStatus = 'pending' | 'running' | 'success' | 'failed' | 'skipped';
-
-const processLabels: Record<(typeof PIPELINE_PROCESSES)[number], string> = {
-  validate: 'Validate request',
-  register: 'Register VM inventory',
-  provision: 'Provision compute instance',
-  'fry-baseline': 'Fry: baseline',
-  'fry-software': 'Fry: software',
-  'fry-ad-join': 'Fry: AD join',
-  'fry-access': 'Fry: team access',
-  finalize: 'Finalize VM',
-  'on-failure': 'Failure handling',
-};
-
-const processStatuses = new Set<ProcessStatus>([
-  'pending',
-  'running',
-  'success',
-  'failed',
-  'skipped',
-]);
-
-export type PipelineSnapshot = {
+type Operation = 'provision' | 'refry' | 'destroy';
+type WorkflowStep = {
+  name: string;
   status: string;
-  processes: Record<(typeof PIPELINE_PROCESSES)[number], ProcessStatus>;
+  conclusion: string | null;
+};
+type WorkflowJob = {
+  name: string;
+  status: string;
+  conclusion: string | null;
+  steps?: WorkflowStep[];
+};
+type WorkflowRun = {
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+  path?: string;
 };
 
-function parseAnnotation(value: string | undefined): Record<string, string> {
-  if (!value) return {};
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, item]) =>
-        processStatuses.has(item as ProcessStatus),
-      ),
-    ) as Record<string, string>;
-  } catch {
-    return {};
+const repository = 'amirasyraf/compute-factory-platform';
+const apiBase = process.env.GITHUB_API_URL ?? 'https://api.github.com';
+const expectedJobs: Record<Operation, string[]> = {
+  provision: [
+    'validate',
+    'register',
+    'provision',
+    'fry-baseline / fry',
+    'fry-software / fry',
+    'fry-ad-join / fry',
+    'fry-access / fry',
+    'finalize',
+    'on-failure',
+  ],
+  refry: ['guard', 'fry / fry', 'finalize'],
+  destroy: ['guard', 'destroy'],
+};
+const workflowPaths: Record<Operation, string> = {
+  provision: '.github/workflows/provision.yml',
+  refry: '.github/workflows/fry.yml',
+  destroy: '.github/workflows/destroy.yml',
+};
+
+function runUrl(runId: number): string {
+  return `${apiBase}/repos/${repository}/actions/runs/${runId}`;
+}
+
+async function getJson<T>(url: string, token: string): Promise<T> {
+  const response = await fetch(url, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!response.ok) {
+    const error = new Error(
+      `GitHub API returned ${response.status} for workflow status`,
+    ) as Error & { status: number };
+    error.status = response.status;
+    throw error;
   }
+  return (await response.json()) as T;
 }
 
-export function getPipelineSnapshot(entity: Entity): PipelineSnapshot {
-  const annotations = entity.metadata.annotations ?? {};
-  const overallStatus = annotations['cf/status'];
-  const recorded = parseAnnotation(annotations['cf/processes']);
-  const stages = parseAnnotation(annotations['cf/stages']);
-  const stageForProcess: Record<string, string> = {
-    provision: 'provision',
-    'fry-baseline': 'baseline',
-    'fry-software': 'software',
-    'fry-ad-join': 'ad-join',
-    'fry-access': 'access',
-  };
-  const fallback: Record<string, ProcessStatus> = {
-    validate: 'success',
-    register: 'success',
-    finalize: overallStatus === 'ready' ? 'success' : 'pending',
-    'on-failure': getFailureProcessStatus(overallStatus),
-  };
-  for (const [process, stage] of Object.entries(stageForProcess)) {
-    fallback[process] =
-      (stages[stage] as ProcessStatus | undefined) ?? 'pending';
+function jobState(job: WorkflowJob): string {
+  return job.status === 'completed'
+    ? job.conclusion ?? 'completed'
+    : job.status;
+}
+
+function stepState(step: WorkflowStep): string {
+  return step.status === 'completed'
+    ? step.conclusion ?? 'completed'
+    : step.status;
+}
+
+function findJob(
+  jobs: WorkflowJob[],
+  expected: string,
+): WorkflowJob | undefined {
+  return jobs.find(job => job.name === expected);
+}
+
+function icon(state: string): string {
+  if (state === 'success') return '✓';
+  if (state === 'failure' || state === 'timed_out' || state === 'cancelled') {
+    return '✗';
   }
-  const processes = Object.fromEntries(
-    PIPELINE_PROCESSES.map(process => [
-      process,
-      (recorded[process] as ProcessStatus | undefined) ?? fallback[process],
-    ]),
-  ) as PipelineSnapshot['processes'];
-  return { status: annotations['cf/status'] ?? 'unknown', processes };
+  if (state === 'in_progress') return '●';
+  if (state === 'skipped') return '–';
+  return '○';
 }
 
-function getFailureProcessStatus(status: string | undefined): ProcessStatus {
-  if (status === 'failed') return 'success';
-  if (status === 'ready') return 'skipped';
-  return 'pending';
-}
+function formatWorkflow(
+  operation: Operation,
+  run: WorkflowRun,
+  jobs: WorkflowJob[],
+): string {
+  const expected = expectedJobs[operation];
+  const completed = jobs.filter(job => job.status === 'completed').length;
+  const total = Math.max(expected.length, jobs.length);
+  const lines = [
+    `${operation} workflow: ${run.status}${
+      run.conclusion ? ` (${run.conclusion})` : ''
+    }`,
+    `Progress: ${completed}/${total} jobs complete`,
+  ];
 
-function formatStatus(status: ProcessStatus): string {
-  switch (status) {
-    case 'success':
-      return 'completed';
-    case 'running':
-      return 'in progress';
-    case 'failed':
-      return 'failed';
-    case 'skipped':
-      return 'skipped';
-    default:
-      return 'waiting';
+  for (const name of expected) {
+    const job = findJob(jobs, name);
+    if (!job) {
+      lines.push(`  ○ ${name}: waiting`);
+      continue;
+    }
+    lines.push(`  ${icon(jobState(job))} ${job.name}: ${jobState(job)}`);
+    for (const step of job.steps ?? []) {
+      lines.push(
+        `      ${icon(stepState(step))} ${step.name}: ${stepState(step)}`,
+      );
+    }
   }
-}
 
-export function formatPipelineSnapshot(snapshot: PipelineSnapshot): string[] {
-  return PIPELINE_PROCESSES.map(
-    process =>
-      `${processLabels[process]}: ${formatStatus(snapshot.processes[process])}`,
-  );
+  const known = new Set(expected);
+  for (const job of jobs.filter(item => !known.has(item.name))) {
+    lines.push(`  ${icon(jobState(job))} ${job.name}: ${jobState(job)}`);
+  }
+
+  const current = jobs.find(job => job.status === 'in_progress');
+  if (current) {
+    const step = current.steps?.find(item => item.status === 'in_progress');
+    lines.push(`Current: ${current.name}${step ? ` / ${step.name}` : ''}`);
+  }
+  return lines.join('\n');
 }
 
 function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
@@ -124,88 +142,115 @@ function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
       'abort',
       () => {
         clearTimeout(timer);
-        reject(new Error('VM pipeline watch was cancelled'));
+        reject(new Error('Workflow watch was cancelled'));
       },
       { once: true },
     );
   });
 }
 
-export function createVmWatchAction(
-  catalog: CatalogService,
-  auth: AuthService,
+export function createWorkflowWatchAction(
   options: { intervalMs?: number; maxWaitMs?: number } = {},
 ) {
   const intervalMs = options.intervalMs ?? 10000;
   const maxWaitMs = options.maxWaitMs ?? 30 * 60 * 1000;
 
   return createTemplateAction({
-    id: 'cf:watch-vm',
+    id: 'cf:watch-workflow',
     description:
-      'Stream every VM pipeline process from the catalog until the VM is ready or failed',
+      'Stream GitHub Actions jobs and steps until a Compute Factory operation finishes',
     schema: {
       input: {
-        name: z => z.string(),
+        operation: z => z.enum(['provision', 'refry', 'destroy']),
+        workflowRunId: z => z.number(),
       },
       output: {
         status: z => z.string(),
       },
     },
     async handler(ctx) {
-      const credentials = await ctx.getInitiatorCredentials();
-      if (!auth.isPrincipal(credentials, 'user')) {
-        throw new Error('A signed-in user is required');
-      }
+      const token = process.env.GITHUB_TOKEN;
+      if (!token)
+        throw new Error('GITHUB_TOKEN is required to watch workflows');
 
+      const operation = ctx.input.operation as Operation;
+      const runId = ctx.input.workflowRunId;
       const started = Date.now();
       let lastSignature = '';
-      let inventoryFound = false;
+      let checkedRunPath = false;
+
       while (Date.now() - started <= maxWaitMs) {
         if (ctx.signal?.aborted)
-          throw new Error('VM pipeline watch was cancelled');
-        const entity = await catalog.getEntityByRef(
-          `resource:default/${ctx.input.name}`,
-          { credentials },
+          throw new Error('Workflow watch was cancelled');
+
+        let run: WorkflowRun;
+        try {
+          run = await getJson<WorkflowRun>(runUrl(runId), token);
+        } catch (error) {
+          if ((error as { status?: number }).status !== 404) throw error;
+          ctx.logger.info(
+            `Waiting for GitHub workflow run ${runId} to become available...`,
+          );
+          await delay(intervalMs, ctx.signal);
+          continue;
+        }
+
+        if (
+          !checkedRunPath &&
+          run.path &&
+          run.path !== workflowPaths[operation]
+        ) {
+          throw new Error(
+            'Workflow run does not match the requested Compute Factory operation',
+          );
+        }
+        checkedRunPath = true;
+
+        const jobsResponse = await getJson<{ jobs: WorkflowJob[] }>(
+          `${runUrl(runId)}/jobs?per_page=100`,
+          token,
         );
-        if (entity) {
-          inventoryFound = true;
-          const snapshot = getPipelineSnapshot(entity);
-          const signature = PIPELINE_PROCESSES.map(
-            process => `${process}:${snapshot.processes[process]}`,
-          ).join('|');
-          if (signature !== lastSignature) {
-            lastSignature = signature;
-            ctx.logger.info(
-              `VM pipeline status (${
-                snapshot.status
-              }):\n${formatPipelineSnapshot(snapshot)
-                .map(line => `  ${line}`)
-                .join('\n')}`,
-            );
-          }
-          if (snapshot.status === 'ready') {
-            ctx.output('status', snapshot.status);
-            ctx.logger.info('VM pipeline completed: the VM is ready.');
+        const jobs = jobsResponse.jobs ?? [];
+        const signature = JSON.stringify({
+          status: run.status,
+          conclusion: run.conclusion,
+          jobs: jobs.map(job => ({
+            name: job.name,
+            status: job.status,
+            conclusion: job.conclusion,
+            steps: job.steps?.map(step => [
+              step.name,
+              step.status,
+              step.conclusion,
+            ]),
+          })),
+        });
+
+        if (signature !== lastSignature) {
+          lastSignature = signature;
+          ctx.logger.info(formatWorkflow(operation, run, jobs));
+        }
+
+        if (run.status === 'completed') {
+          const status =
+            run.conclusion === 'success'
+              ? 'success'
+              : run.conclusion ?? 'failed';
+          ctx.output('status', status);
+          if (status === 'success') {
+            ctx.logger.info(`${operation} workflow completed successfully.`);
             return;
           }
-          if (snapshot.status === 'failed') {
-            ctx.output('status', snapshot.status);
-            throw new Error(
-              'VM pipeline failed; open the VM catalog page or GitHub Actions run for details.',
-            );
-          }
-        } else if (!inventoryFound) {
-          ctx.logger.info(
-            'Waiting for the VM inventory entry to appear in the catalog...',
-          );
-          inventoryFound = true;
+          throw new Error(`${operation} workflow finished with ${status}.`);
         }
+
         await delay(intervalMs, ctx.signal);
       }
+
       throw new Error(
-        `VM pipeline did not finish within ${Math.round(
+        `${operation} workflow did not finish within ${Math.round(
           maxWaitMs / 60000,
-        )} minutes; open the GitHub Actions run for details.`,
+        )} minutes.`,
       );
     },
   });

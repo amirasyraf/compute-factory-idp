@@ -11,8 +11,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   run API with a shared token.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
-  Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-vm`, which streams all
-  catalog-backed pipeline processes into the request task until the VM is ready or failed.
+  Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
+  every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
@@ -140,8 +140,7 @@ GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
 SQLite is in-memory; local catalog state is disposable. File locations in the
 base config are relative to `packages/backend`. Stop with Ctrl-C. Do not store
 the GitHub token in a file. Signing locally additionally requires `AWS_REGION`,
-`SSH_CA_SECRET_ID` and AWS default-chain access to the secret; unit tests need
-no AWS credentials and create a throwaway local CA.
+`SSH_CA_SECRET_ID` and AWS default-chain access to the secret.
 
 ## Checks
 
@@ -151,7 +150,6 @@ Run one heavy job at a time on the shared laptop, with a 3 GiB Node heap cap:
 export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
-mise exec -- node .yarn/releases/yarn-4.13.0.cjs workspace @internal/plugin-cf-backend test --watch=false --maxWorkers=2
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
 ```
