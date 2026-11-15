@@ -34,7 +34,6 @@ const FILTERS: { id: Filter; label: string }[] = [
 const useStyles = makeStyles({
   root: {
     padding: '32px 20px 48px',
-    maxWidth: 1480,
     '@media (max-width: 760px)': { padding: '24px 16px 40px' },
   },
   head: {

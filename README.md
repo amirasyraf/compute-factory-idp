@@ -36,6 +36,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   (Get SSH certificate when ready, View run while building or failed). It reads the same catalog
   annotations as the VM card, polls every 10 seconds and is team-scoped by the existing catalog
   permission policy (admins see every VM).
+  Home fills the available content width, matching Resources, with 20px horizontal gutters
+  (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder`, plus the `mock-rest` plugin (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams

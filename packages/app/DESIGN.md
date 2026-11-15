@@ -191,8 +191,8 @@ The signed-in shell is a full-height (`100vh`) white flex column. A non-shrinkin
 top bar (56px) sits above a separately vertically scrollable content area. It is
 not a sidebar and is not implemented as an overlay on the page.
 
-Home and Resources use `32px 20px 48px` page padding; home alone declares a
-1480px maximum width, without an auto-centering margin. Their headers wrap,
+Home and Resources fill the available content width with `32px 20px 48px` page
+padding and no maximum-width cap. Their headers wrap,
 aligning titles and actions at the bottom with a 24px gap. Home's count strip
 starts 28px below the header. These are observed measurements, not a new universal
 spacing-token scale. Owned surfaces commonly use 8/12/16/20/24px intervals, but
