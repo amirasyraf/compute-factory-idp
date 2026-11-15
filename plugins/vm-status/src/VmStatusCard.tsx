@@ -19,6 +19,7 @@ import ErrorIcon from '@material-ui/icons/Error';
 import HourglassEmpty from '@material-ui/icons/HourglassEmpty';
 import PlayCircleOutline from '@material-ui/icons/PlayCircleOutline';
 import SkipNext from '@material-ui/icons/SkipNext';
+import { getVmConfiguration } from './vmSpec';
 
 export type PipelineStatus =
   | 'pending'
@@ -51,7 +52,7 @@ const processInfo: Record<ProcessName, { label: string; description: string }> =
     register: {
       label: 'Register VM inventory',
       description:
-        'Write the request and catalog entity to the platform inventory.',
+        'Commit the desired VM spec and catalog entity to the platform inventory.',
     },
     provision: {
       label: 'Provision compute instance',
@@ -221,6 +222,7 @@ export function VmStatusCard() {
   }, [initial]);
 
   const annotations = entity.metadata.annotations ?? {};
+  const desired = getVmConfiguration(entity.spec);
   const overallStatus = annotations['cf/status'] ?? 'unknown';
   const status = getOverallPipelineStatus(overallStatus);
   const processes = getPipelineProcesses(annotations);
@@ -337,39 +339,53 @@ export function VmStatusCard() {
       </Typography>
 
       <Divider style={{ margin: '16px 0' }} />
-      <Typography variant="subtitle2">Request and access</Typography>
+      <Typography variant="subtitle2">
+        Desired configuration and access
+      </Typography>
       <Grid container spacing={1} style={{ marginTop: 4 }}>
         <Grid item xs={6}>
           <Typography variant="caption" color="textSecondary">
             Team
           </Typography>
-          <Typography variant="body2">
-            {annotations['cf/team'] || '—'}
-          </Typography>
+          <Typography variant="body2">{desired.team}</Typography>
         </Grid>
         <Grid item xs={6}>
           <Typography variant="caption" color="textSecondary">
             Platform / OS
           </Typography>
           <Typography variant="body2">
-            {annotations['cf/platform'] || '—'} / {annotations['cf/os'] || '—'}
+            {desired.platform} / {desired.os}
           </Typography>
         </Grid>
         <Grid item xs={6}>
           <Typography variant="caption" color="textSecondary">
             Size
           </Typography>
-          <Typography variant="body2">
-            {annotations['cf/size'] || '—'}
-          </Typography>
+          <Typography variant="body2">{desired.size}</Typography>
         </Grid>
         <Grid item xs={6}>
           <Typography variant="caption" color="textSecondary">
             Software
           </Typography>
-          <Typography variant="body2">
-            {annotations['cf/software'] || 'none'}
+          <Typography variant="body2">{desired.software}</Typography>
+        </Grid>
+        <Grid item xs={6}>
+          <Typography variant="caption" color="textSecondary">
+            AD join
           </Typography>
+          <Typography variant="body2">{desired.adJoin}</Typography>
+        </Grid>
+        <Grid item xs={6}>
+          <Typography variant="caption" color="textSecondary">
+            Billing (self-reported)
+          </Typography>
+          <Typography variant="body2">{desired.billing}</Typography>
+        </Grid>
+        <Grid item xs={12}>
+          <Typography variant="caption" color="textSecondary">
+            Cloud tags
+          </Typography>
+          <Typography variant="body2">{desired.cloudTags}</Typography>
         </Grid>
       </Grid>
 

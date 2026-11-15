@@ -11,6 +11,26 @@ const template = {
   metadata: { name: 'vm-request', namespace: 'default', title: 'Request a VM' },
   spec: { type: 'vm', owner: 'group:default/alpha' },
 };
+const vm = {
+  apiVersion: 'backstage.io/v1alpha1',
+  kind: 'Resource',
+  metadata: {
+    name: 'spec-vm',
+    namespace: 'default',
+    uid: 'spec-vm-fixture',
+    annotations: { 'cf/status': 'ready' },
+  },
+  spec: {
+    type: 'vm',
+    owner: 'group:default/alpha',
+    lifecycle: 'poc',
+    compute: { platform: 'aws', os: 'ubuntu', size: 'M' },
+    configuration: { software: ['git', 'nginx'], adJoin: false },
+    billing: { costCenter: 'CC-1234' },
+    cloudTags: { environment: 'test' },
+  },
+  relations: [{ type: 'ownedBy', targetRef: 'group:default/alpha' }],
+};
 const task = {
   id: 'workflow-ui-fixture',
   status: 'processing',
@@ -141,8 +161,10 @@ try {
       json = { items: [], totalItems: 0, pageInfo: {} };
     } else if (path.endsWith('/entities/by-refs')) {
       json = { items: [template] };
+    } else if (path.endsWith('/ancestry')) {
+      json = { items: [{ entity: vm, parentEntityRefs: [] }] };
     } else if (path.includes('/entities/by-name/')) {
-      json = template;
+      json = path.includes('/resource/') ? vm : template;
     } else if (path.endsWith('/entities')) {
       json = [];
     }
@@ -216,6 +238,22 @@ try {
   assertNoErrors(errors);
   console.log(
     'CATALOG UI PASS: Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
+  );
+  await page.goto(`${base}/catalog/default/resource/spec-vm`);
+  await expect(
+    page.getByText('Desired configuration and access', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('aws / ubuntu', { exact: true })).toBeVisible();
+  await expect(page.getByText('git, nginx', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('costCenter: CC-1234', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('environment: test', { exact: true }),
+  ).toBeVisible();
+  assertNoErrors(errors);
+  console.log(
+    'VM SPEC UI PASS: desired configuration renders from spec without desired-input annotations (fixture APIs)',
   );
 } finally {
   await browser.close();

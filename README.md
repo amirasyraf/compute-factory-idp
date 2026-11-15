@@ -6,9 +6,13 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 ## Custom code
 
 - `plugins/vm-status`: one frontend entity card, only for `Resource` / `spec.type: vm`.
-  It renders every workflow process from catalog annotations, polls every 10 seconds until ready/failed,
+  It renders every workflow process from catalog annotations, desired compute/configuration/billing/tags
+  from the entity's structured `spec` (not duplicated annotations), polls every 10 seconds until ready/failed,
   and links to the full Actions run, certificate, destroy and refry templates. It never calls the GitHub
   run API with a shared token.
+  Desired software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
+  Billing metadata is self-reported, not organizational billing authorization. Custom spec validation is
+  performed by the platform workflow; malformed custom fields are rendered defensively by the card.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
@@ -162,7 +166,6 @@ Run one heavy job at a time on the shared laptop, with a 3 GiB Node heap cap:
 export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
-mise exec -- node --experimental-strip-types --test scripts/workflow.test.ts
 WORKFLOW_UI_URL=https://idp.amirasyraf.dev mise exec -- node scripts/workflow-ui.mjs
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
@@ -171,10 +174,9 @@ docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest 
 Backend build bundles the frontend. The Dockerfile uses Backstage's host-build
 skeleton/bundle approach and installs Linux-native production dependencies in
 the arm64 image; it never copies macOS node_modules. `openssh-client` is present.
-The workflow tests exercise job ordering, all three operations, skipped/failed/cancelled states,
-stored snapshot parsing, timing and the watcher-to-frontend protocol. Browser checks should also
-exercise expandable steps and the unchanged task controls against the deployed frontend; fixture
-data alone does not verify a real VM provisioning run.
+This POC does not use unit-test scaffolding. Verification uses static checks, the platform's existing
+offline workflow integration check, and focused browser smoke checks. Browser checks exercise
+expandable steps and unchanged task controls; fixture data alone does not verify a real VM run.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state. It also checks the
 Resource catalog default, normal-user kind restrictions, and admin kind selection/deep links.
