@@ -1,0 +1,36 @@
+{
+  "name": "@internal/plugin-vm-status",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.tsx",
+  "types": "src/index.tsx",
+  "backstage": {
+    "role": "frontend-plugin",
+    "pluginId": "vm-status"
+  },
+  "scripts": {
+    "build": "backstage-cli package build",
+    "lint": "backstage-cli package lint",
+    "test": "backstage-cli package test --passWithNoTests"
+  },
+  "dependencies": {
+    "@backstage/catalog-model": "^1.0.0",
+    "@backstage/core-components": "^0.18.15",
+    "@backstage/core-plugin-api": "^1.12.11",
+    "@backstage/frontend-plugin-api": "^0.18.2",
+    "@backstage/plugin-catalog-react": "^3.3.0",
+    "@material-ui/core": "^4.12.2",
+    "@material-ui/icons": "^4.9.1"
+  },
+  "peerDependencies": {
+    "react": "^18.0.2",
+    "react-dom": "^18.0.2",
+    "react-router-dom": "^6.30.2"
+  },
+  "devDependencies": {
+    "@backstage/cli": "^0.36.7"
+  },
+  "files": [
+    "dist"
+  ]
+}

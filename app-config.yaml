@@ -1,0 +1,34 @@
+app:
+  title: Compute Factory
+  baseUrl: http://localhost:3000
+  packages: all
+organization:
+  name: Compute Factory
+backend:
+  baseUrl: http://localhost:7007
+  listen:
+    port: 7007
+  cors:
+    origin: http://localhost:3000
+    credentials: true
+  database:
+    client: better-sqlite3
+    connection: ':memory:'
+integrations:
+  github:
+    - host: github.com
+      token: ${GITHUB_TOKEN}
+permission:
+  enabled: true
+catalog:
+  orphanStrategy: delete
+  processingInterval: { seconds: 30 }
+  rules:
+    - allow: [Component, System, API, Resource, Location, User, Group, Template]
+  locations:
+    - type: file
+      target: ../../catalog/org.yaml
+    - type: file
+      target: ../../catalog/locations.yaml
+    - type: file
+      target: ../../catalog/templates/ssh-cert/template.yaml

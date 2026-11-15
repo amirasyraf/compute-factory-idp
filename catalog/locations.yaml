@@ -1,0 +1,17 @@
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: cf-vms
+spec:
+  type: url
+  targets:
+    - https://github.com/amirasyraf/compute-factory-platform/blob/main/vms/*/catalog-info.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: Location
+metadata:
+  name: cf-platform-templates
+spec:
+  type: url
+  targets:
+    - https://github.com/amirasyraf/compute-factory-platform/blob/main/catalog/templates/*/template.yaml

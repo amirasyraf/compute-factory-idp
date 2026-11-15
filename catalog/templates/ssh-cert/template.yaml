@@ -1,0 +1,40 @@
+apiVersion: scaffolder.backstage.io/v1beta3
+kind: Template
+metadata:
+  name: ssh-cert
+  title: Get SSH certificate
+  description: Issue a personal 12-hour certificate for your teams' VMs.
+spec:
+  owner: group:default/platform-admins
+  type: service
+  parameters:
+    - title: Your public key
+      required: [publicKey]
+      properties:
+        publicKey:
+          title: OpenSSH public key
+          type: string
+          ui:widget: textarea
+          ui:options:
+            rows: 4
+          description: Paste ~/.ssh/id_ed25519.pub. Never paste your private key.
+  steps:
+    - id: sign
+      name: Sign certificate
+      action: cf:ssh:sign
+      input:
+        publicKey: ${{ parameters.publicKey }}
+  output:
+    text:
+      - title: SSH certificate
+        content: |
+          Save this as `~/.ssh/id_ed25519-cert.pub`, beside your private key.
+
+          ```text
+          ${{ steps.sign.output.certificate }}
+          ```
+
+          Valid until **${{ steps.sign.output.validUntil }}**.
+          Principals: `${{ steps.sign.output.principals | join(', ') }}`.
+
+          Connect with `ssh ubuntu@<ip>` (the VM page shows its IP).

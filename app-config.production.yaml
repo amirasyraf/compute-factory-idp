@@ -1,0 +1,41 @@
+app:
+  baseUrl: https://${IDP_DOMAIN}
+backend:
+  baseUrl: https://${IDP_DOMAIN}
+  listen: { host: 0.0.0.0, port: 7007 }
+  cors:
+    origin: https://${IDP_DOMAIN}
+  database:
+    client: pg
+    connection:
+      host: postgres
+      port: 5432
+      user: backstage
+      password: ${POSTGRES_PASSWORD}
+      database: backstage
+  auth:
+    externalAccess:
+      - type: static
+        options:
+          token: ${BACKSTAGE_TOKEN}
+          subject: compute-factory-workflows
+        accessRestrictions:
+          - plugin: catalog
+auth:
+  environment: production
+  providers:
+    github:
+      production:
+        clientId: ${AUTH_GITHUB_CLIENT_ID}
+        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
+        signIn:
+          resolvers:
+            - resolver: usernameMatchingUserEntityName
+catalog:
+  locations:
+    - type: file
+      target: /app/catalog/org.yaml
+    - type: file
+      target: /app/catalog/locations.yaml
+    - type: file
+      target: /app/catalog/templates/ssh-cert/template.yaml
