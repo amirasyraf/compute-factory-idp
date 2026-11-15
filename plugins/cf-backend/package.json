@@ -17,6 +17,7 @@
     "@aws-sdk/client-secrets-manager": "^3.0.0",
     "@backstage/backend-plugin-api": "^1.0.0",
     "@backstage/catalog-model": "^1.0.0",
+    "@backstage/plugin-auth-node": "^0.7.7",
     "@backstage/plugin-catalog-backend": "^4.0.1",
     "@backstage/plugin-catalog-node": "^2.2.6",
     "@backstage/plugin-permission-common": "^0.9.12",

@@ -28,3 +28,10 @@ metadata:
   name: amirasyraf
 spec:
   memberOf: [alpha]
+---
+apiVersion: backstage.io/v1alpha1
+kind: User
+metadata:
+  name: bob
+spec:
+  memberOf: [bravo]

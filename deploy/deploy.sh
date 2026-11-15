@@ -4,7 +4,7 @@ if [[ $# -ne 2 ]]; then echo "Usage: $0 <host> <env-file>" >&2; exit 2; fi
 host=$1
 env_file=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 [[ -r "$env_file" ]] || { echo 'Env file is not readable' >&2; exit 2; }
-for key in IDP_DOMAIN AUTH_GITHUB_CLIENT_ID AUTH_GITHUB_CLIENT_SECRET GITHUB_TOKEN POSTGRES_PASSWORD BACKSTAGE_TOKEN AWS_REGION SSH_CA_SECRET_ID; do
+for key in IDP_DOMAIN IDP_USERS_B64 GITHUB_TOKEN POSTGRES_PASSWORD BACKSTAGE_TOKEN AWS_REGION SSH_CA_SECRET_ID; do
   grep -qE "^${key}=.+" "$env_file" || { echo "Missing env key: $key" >&2; exit 2; }
 done
 [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo 'Invalid host' >&2; exit 2; }
@@ -20,7 +20,7 @@ export MAKEFLAGS=-j2
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs install --immutable
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 # Runtime app-backend injects the production frontend configuration. The build
-# needs no OAuth credentials, PAT, CA or production database password.
+# needs no login credentials, PAT, CA or production database password.
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
 ssh_opts=(-i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)

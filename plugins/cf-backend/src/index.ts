@@ -7,6 +7,24 @@ import { policyExtensionPoint } from '@backstage/plugin-permission-node/alpha';
 import { scaffolderActionsExtensionPoint } from '@backstage/plugin-scaffolder-node';
 import { ComputeFactoryPolicy } from './policy';
 import { createSshSignAction } from './sign';
+import { authProvidersExtensionPoint } from '@backstage/plugin-auth-node';
+import { passwordProviderFactory } from './auth';
+
+export const passwordAuthModule = createBackendModule({
+  pluginId: 'auth',
+  moduleId: 'compute-factory-password',
+  register(reg) {
+    reg.registerInit({
+      deps: { providers: authProvidersExtensionPoint },
+      async init({ providers }) {
+        providers.registerProvider({
+          providerId: 'password',
+          factory: passwordProviderFactory,
+        });
+      },
+    });
+  },
+});
 
 // One package; Backstage requires a registration for each owning plugin.
 export const permissionModule = createBackendModule({

@@ -6,6 +6,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
 const run = promisify(execFile);
+if (!process.env.IDP_USERS_B64)
+  throw new Error('Set throwaway IDP_USERS_B64 for the local smoke test');
 
 const configPath = resolve('app-config.smoke.local.yaml');
 const port = 17007;
@@ -27,7 +29,6 @@ const config = {
       ],
     },
   },
-  auth: { providers: { guest: { userEntityRef: 'user:default/amirasyraf' } } },
   catalog: {
     locations: [
       'org.yaml',
@@ -51,6 +52,8 @@ const child = spawn(
     `127.0.0.1:${port}:${port}`,
     '-e',
     'GITHUB_TOKEN',
+    '-e',
+    'IDP_USERS_B64',
     '-e',
     'NODE_ENV=development',
     '-v',
@@ -121,6 +124,7 @@ try {
     'group:default/bravo',
     'group:default/platform-admins',
     'user:default/amirasyraf',
+    'user:default/bob',
     'location:default/cf-vms',
     'template:default/ssh-cert',
   ]) {

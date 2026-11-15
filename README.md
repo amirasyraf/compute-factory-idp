@@ -8,23 +8,66 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 - `plugins/vm-status`: one frontend entity card, only for `Resource` / `spec.type: vm`.
   It reads catalog annotations, polls every 10 seconds until ready/failed, and
   links to certificate, destroy and refry templates. No GitHub run API bypass.
-- `plugins/cf-backend`: one backend package, registered against `permission` and
+- `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
-  Implements the team policy and `cf:ssh:sign` only.
+  Implements password sign-in, the team policy and `cf:ssh:sign`.
+- `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
+  Backstage identity API; the restored home and signals plugins remain enabled.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
 - `deploy/`: Caddy, Postgres and the backend/frontend bundle in Docker Compose.
 
 The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
+`app.extensions.page:home` mounts Home at `/`, with the Compute Factory card as
+the default layout. Catalog keeps its default `/catalog` route.
 
 ## Users and teams
 
-Edit `catalog/org.yaml`. User names must match GitHub usernames exactly. Add groups
+Edit `catalog/org.yaml`. User names must match the password file exactly. Add groups
 with `kind: Group`, `spec.type: team`, `children: []`; put their names in each
 user's `spec.memberOf`. `amirasyraf` initially belongs **only** to `alpha`.
-`platform-admins` is deliberately empty: adding membership explicitly grants
-global access. GitHub sign-in uses `usernameMatchingUserEntityName` and requires
-a matching catalog user; there is no permissive resolver fallback.
+`bob` belongs only to `bravo`. `platform-admins` is deliberately empty: adding
+membership explicitly grants global access. The password provider calls
+`signInWithCatalogUser` with the username; unknown catalog users cannot sign in.
+The default ownership resolver supplies the user plus their direct groups, so
+the existing policy and SSH action are unchanged. GitHub is an integration only,
+not a login provider. No OAuth App or OAuth environment variables are required.
+
+### Password file and sessions
+
+`IDP_USERS_B64` is canonical, single-line base64 of UTF-8 text, one
+`username:hash` per line. It is secret backend environment, never frontend config.
+Hash format: `scrypt$16384$8$1$<16-byte-salt-base64>$<32-byte-key-base64>`.
+Verification uses async Node scrypt and `timingSafeEqual`; unknown users and
+malformed hashes pay a dummy scrypt cost and fail with the same generic message.
+
+`deploy/hash-password.mjs` reads a password from stdin, strips one terminal
+newline (not spaces), and prints one hash. It uses only Node built-ins and the
+shared password helper in this repo. For example, on a private terminal:
+
+```sh
+read -rs PASSWORD
+HASH=$(printf '%s' "$PASSWORD" | node deploy/hash-password.mjs)
+unset PASSWORD
+# Append "username:$HASH" to your private password file, then:
+IDP_USERS_B64=$(base64 < /path/to/private/users.txt | tr -d '\n')
+unset HASH
+```
+
+The orchestrator's `./poc set-password` manages this file/environment for deploy.
+Never commit passwords, password files, or hashes. Base64 avoids Compose `$`
+interpolation; it is encoding, not encryption.
+
+Sessions last 12 hours from login, without sliding renewal. A signed HttpOnly,
+SameSite=Lax cookie restores sign-in across reloads. Cookies are Secure on HTTPS;
+plain HTTP is allowed only for local development, never in production. POST login
+and sign-out require a permitted Origin and an AJAX header. Access tokens live
+only in memory and refresh through the cookie; passwords are never written to
+browser storage. Sign out clears the cookie and returns to the form.
+The cookie signing key derives from the secret user configuration: changing any
+hash invalidates all existing sessions, and unchanged configuration survives a
+backend restart. This is a single-instance POC, not a full account-management,
+password-reset, MFA or brute-force protection service.
 
 ## Authorization and verified upstream contracts
 
@@ -78,23 +121,14 @@ mise install
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs install --immutable
 ```
 
-Create gitignored `app-config.local.yaml`:
-
-```yaml
-auth:
-  providers:
-    guest:
-      userEntityRef: user:default/amirasyraf
-```
-
-The normal UI is GitHub-only; for UI development add a GitHub development
-provider with the localhost callback. The guest provider is useful for backend
-smoke tests and is not configured in base/production config; it refuses
-production use. `scripts/smoke.mjs` starts a temporary local backend container, checks
+Set `IDP_USERS_B64` in your shell using a throwaway password file for local users.
+There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts a temporary local backend container, checks
 readiness/org/locations/templates and always stops it; run it with the token
 in the environment after the image build. It uses SQLite and a dummy catalog-only
-static token; the real GitHub token is inherited by Docker through environment
-only. No production configuration or AWS credentials are used.
+static token; `IDP_USERS_B64` and the GitHub integration token are inherited by
+Docker through environment only. No production configuration or AWS credentials
+are needed. This API smoke is not a replacement for browser verification of
+the home, catalog and Create pages.
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
@@ -126,9 +160,9 @@ the arm64 image; it never copies macOS node_modules. `openssh-client` is present
 
 ## Deploy
 
-Copy `deploy/.env.example` to a gitignored file and fill the eight keys only:
+Copy `deploy/.env.example` to a gitignored file and fill the seven keys only:
 
-`IDP_DOMAIN`, `AUTH_GITHUB_CLIENT_ID`, `AUTH_GITHUB_CLIENT_SECRET`, `GITHUB_TOKEN`,
+`IDP_DOMAIN`, `IDP_USERS_B64`, `GITHUB_TOKEN`,
 `POSTGRES_PASSWORD`, `BACKSTAGE_TOKEN`, `AWS_REGION`, `SSH_CA_SECRET_ID`.
 
 ```sh
@@ -144,8 +178,8 @@ The orchestrator waits for cloud-init's `cf-idp-ready` marker first.
 
 First deploy prerequisites owned by the orchestrator:
 
-- GitHub OAuth App callback:
-  `https://idp.amirasyraf.dev/api/auth/github/handler/frame`.
+- Populate `IDP_USERS_B64` using `./poc set-password`, with usernames matching
+  `catalog/org.yaml`; include only users who should be able to log in.
 - Integration PAT: private platform repo Contents read and Actions read/write.
   The IDP org/cert template is read from packaged files, not via GitHub.
 - DNS points directly to the host; inbound TCP 80/443 for Caddy TLS.

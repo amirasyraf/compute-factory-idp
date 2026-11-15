@@ -1,12 +1,14 @@
 import { createBackend } from '@backstage/backend-defaults';
-import { permissionModule, sshModule } from '@internal/plugin-cf-backend';
+import {
+  permissionModule,
+  sshModule,
+  passwordAuthModule,
+} from '@internal/plugin-cf-backend';
 
 const backend = createBackend();
 backend.add(import('@backstage/plugin-app-backend'));
 backend.add(import('@backstage/plugin-auth-backend'));
-backend.add(import('@backstage/plugin-auth-backend-module-github-provider'));
-// The guest provider refuses production use unless explicitly overridden.
-backend.add(import('@backstage/plugin-auth-backend-module-guest-provider'));
+backend.add(passwordAuthModule);
 backend.add(import('@backstage/plugin-catalog-backend'));
 backend.add(
   import('@backstage/plugin-catalog-backend-module-scaffolder-entity-model'),

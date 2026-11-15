@@ -2,6 +2,16 @@ app:
   title: Compute Factory
   baseUrl: http://localhost:3000
   packages: all
+  extensions:
+    - page:home:
+        config:
+          path: /
+          defaultConfig:
+            - component: ComputeFactory
+              column: 0
+              row: 0
+              width: 12
+              height: 8
 organization:
   name: Compute Factory
 backend:
@@ -20,6 +30,9 @@ integrations:
       token: ${GITHUB_TOKEN}
 permission:
   enabled: true
+auth:
+  providers:
+    password: {}
 catalog:
   orphanStrategy: delete
   processingInterval: { seconds: 30 }
