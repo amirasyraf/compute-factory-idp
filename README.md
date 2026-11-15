@@ -6,11 +6,13 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 ## Custom code
 
 - `plugins/vm-status`: one frontend entity card, only for `Resource` / `spec.type: vm`.
-  It reads catalog annotations, polls every 10 seconds until ready/failed, and
-  links to certificate, destroy and refry templates. No GitHub run API bypass.
+  It renders every workflow process from catalog annotations, polls every 10 seconds until ready/failed,
+  and links to the full Actions run, certificate, destroy and refry templates. It never calls the GitHub
+  run API with a shared token.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
-  Implements password sign-in, the team policy and `cf:ssh:sign`.
+  Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-vm`, which streams all
+  catalog-backed pipeline processes into the request task until the VM is ready or failed.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
@@ -128,7 +130,7 @@ in the environment after the image build. It uses SQLite and a dummy catalog-onl
 static token; `IDP_USERS_B64` and the GitHub integration token are inherited by
 Docker through environment only. No production configuration or AWS credentials
 are needed. This API smoke is not a replacement for browser verification of
-the home, catalog and Create pages.
+the home, catalog, Create pages, VM process card or live Scaffolder process stream.
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
