@@ -1,0 +1,183 @@
+// Exercise the actual served frontend with fixture APIs only. No login credentials,
+// workflow dispatches, VM creation or backend writes. Run against local or deployed UI.
+import { chromium, expect } from '@playwright/test';
+
+const base = process.env.WORKFLOW_UI_URL;
+if (!base) throw new Error('Set WORKFLOW_UI_URL to the frontend URL');
+const template = {
+  apiVersion: 'scaffolder.backstage.io/v1beta3',
+  kind: 'Template',
+  metadata: { name: 'vm-request', namespace: 'default', title: 'Request a VM' },
+  spec: { type: 'vm', owner: 'group:default/alpha' },
+};
+const task = {
+  id: 'workflow-ui-fixture',
+  status: 'processing',
+  createdAt: '2026-11-15T00:00:00Z',
+  spec: {
+    apiVersion: 'scaffolder.backstage.io/v1beta3',
+    parameters: {},
+    output: {},
+    templateInfo: {
+      entityRef: 'template:default/vm-request',
+      entity: template,
+    },
+    steps: [
+      {
+        id: 'dispatch',
+        name: 'Start VM pipeline',
+        action: 'github:actions:dispatch',
+      },
+      {
+        id: 'monitor',
+        name: 'Monitor VM workflow',
+        action: 'cf:watch-workflow',
+      },
+    ],
+  },
+};
+const stage = (name, status, steps = []) => ({
+  name,
+  status,
+  startedAt: null,
+  completedAt: null,
+  steps,
+});
+let snapshot = {
+  version: 1,
+  operation: 'provision',
+  status: 'in_progress',
+  conclusion: null,
+  jobs: [
+    stage('validate', 'success'),
+    stage('register', 'success'),
+    stage('provision', 'in_progress', [
+      {
+        name: 'Terraform apply',
+        status: 'in_progress',
+        startedAt: null,
+        completedAt: null,
+      },
+    ]),
+    stage('fry-baseline / fry', 'waiting'),
+    stage('fry-software / fry', 'waiting'),
+    stage('fry-ad-join / fry', 'waiting'),
+    stage('fry-access / fry', 'waiting'),
+    stage('finalize', 'waiting'),
+    stage('on-failure', 'waiting'),
+  ],
+};
+const browser = await chromium.launch({ headless: true, channel: 'chrome' });
+try {
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+  });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    let json = {};
+    if (path.endsWith('/password/refresh')) {
+      json = {
+        profile: { displayName: 'UI fixture' },
+        backstageIdentity: {
+          token: 'fixture-not-a-real-token',
+          expiresInSeconds: 3600,
+          identity: {
+            type: 'user',
+            userEntityRef: 'user:default/amirasyraf',
+            ownershipEntityRefs: [
+              'user:default/amirasyraf',
+              'group:default/alpha',
+            ],
+          },
+        },
+      };
+    } else if (path.endsWith('/authorize')) {
+      json = {
+        items: (route.request().postDataJSON()?.items ?? []).map(item => ({
+          id: item.id,
+          result: 'ALLOW',
+        })),
+      };
+    } else if (path.endsWith('/eventstream') || path.endsWith('/events')) {
+      const events = [
+        {
+          id: 1,
+          type: 'log',
+          body: {
+            stepId: 'monitor',
+            status: 'processing',
+            message: `CF_WORKFLOW_PROGRESS_V1 ${JSON.stringify(snapshot)}`,
+          },
+        },
+      ].map(event => ({
+        ...event,
+        taskId: task.id,
+        createdAt: '2026-11-15T00:00:01Z',
+      }));
+      await route.fulfill({
+        contentType: 'text/event-stream',
+        body: events
+          .map(
+            event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+          )
+          .join(''),
+      });
+      return;
+    } else if (path.includes(`/tasks/${task.id}`)) {
+      json = task;
+    } else if (path.endsWith('/entities/by-refs')) {
+      json = { items: [template] };
+    } else if (path.includes('/entities/by-name/')) {
+      json = template;
+    } else if (path.endsWith('/entities')) {
+      json = [];
+    }
+    await route.fulfill({ json });
+  });
+  await page.goto(`${base}/create/tasks/${task.id}`);
+  const graph = page.getByRole('region', { name: 'GitHub Actions stages' });
+  await expect(graph).toBeVisible();
+  await expect(graph.getByText('Provision', { exact: true })).toBeVisible();
+  await expect(graph.getByText('Baseline', { exact: true })).toBeVisible();
+  await graph.locator('details').nth(2).locator('summary').click();
+  await expect(graph.getByText('Terraform apply')).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Cancel', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(graph).toBeVisible();
+  snapshot = {
+    ...snapshot,
+    status: 'completed',
+    conclusion: 'failure',
+    jobs: snapshot.jobs.map(job => ({
+      ...job,
+      status:
+        job.name === 'provision'
+          ? 'failure'
+          : job.name === 'fry-software / fry'
+          ? 'skipped'
+          : job.status,
+    })),
+  };
+  await page.reload();
+  await expect(graph.getByText('failure', { exact: true })).toBeVisible();
+  await expect(graph.getByText('skipped', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(graph).toBeVisible();
+  const overflows = await graph.evaluate(el => el.scrollWidth > el.clientWidth);
+  if (!overflows)
+    throw new Error('Stage graph should scroll on narrow screens');
+  assertNoErrors(errors);
+  console.log(
+    'WORKFLOW UI PASS: stages, expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
+  );
+} finally {
+  await browser.close();
+}
+
+function assertNoErrors(errors) {
+  if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
+}

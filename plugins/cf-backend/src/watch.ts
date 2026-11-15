@@ -5,12 +5,16 @@ type WorkflowStep = {
   name: string;
   status: string;
   conclusion: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 };
 type WorkflowJob = {
   name: string;
   status: string;
   conclusion: string | null;
   steps?: WorkflowStep[];
+  started_at?: string | null;
+  completed_at?: string | null;
 };
 type WorkflowRun = {
   status: string;
@@ -41,6 +45,42 @@ const workflowPaths: Record<Operation, string> = {
   refry: '.github/workflows/fry.yml',
   destroy: '.github/workflows/destroy.yml',
 };
+
+// Versioned, task-owned projection. Never include credentials or arbitrary API URLs.
+export function workflowProgress(
+  operation: Operation,
+  run: WorkflowRun,
+  jobs: WorkflowJob[],
+) {
+  const names = [
+    ...expectedJobs[operation],
+    ...jobs
+      .map(job => job.name)
+      .filter(name => !expectedJobs[operation].includes(name)),
+  ];
+  return {
+    version: 1,
+    operation,
+    status: run.status,
+    conclusion: run.conclusion,
+    jobs: names.map(name => {
+      const job = jobs.find(item => item.name === name);
+      const missingStatus = run.status === 'completed' ? 'unknown' : 'waiting';
+      return {
+        name,
+        status: job ? jobState(job) : missingStatus,
+        startedAt: job?.started_at ?? null,
+        completedAt: job?.completed_at ?? null,
+        steps: (job?.steps ?? []).map(step => ({
+          name: step.name,
+          status: stepState(step),
+          startedAt: step.started_at ?? null,
+          completedAt: step.completed_at ?? null,
+        })),
+      };
+    }),
+  };
+}
 
 function runUrl(runId: number): string {
   return `${apiBase}/repos/${repository}/actions/runs/${runId}`;
@@ -211,23 +251,12 @@ export function createWorkflowWatchAction(
           token,
         );
         const jobs = jobsResponse.jobs ?? [];
-        const signature = JSON.stringify({
-          status: run.status,
-          conclusion: run.conclusion,
-          jobs: jobs.map(job => ({
-            name: job.name,
-            status: job.status,
-            conclusion: job.conclusion,
-            steps: job.steps?.map(step => [
-              step.name,
-              step.status,
-              step.conclusion,
-            ]),
-          })),
-        });
+        const progress = workflowProgress(operation, run, jobs);
+        const signature = JSON.stringify(progress);
 
         if (signature !== lastSignature) {
           lastSignature = signature;
+          ctx.logger.info(`CF_WORKFLOW_PROGRESS_V1 ${signature}`);
           ctx.logger.info(formatWorkflow(operation, run, jobs));
         }
 

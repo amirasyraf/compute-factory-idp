@@ -13,6 +13,13 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
   every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
+- `packages/app/src/WorkflowTasks.tsx`: augments the stock Scaffolder task detail page with a
+  horizontally scrollable stage view, individual job status/duration and expandable step details.
+  It reads versioned snapshots from the existing task-owned event stream, not a browser GitHub token
+  or a new privileged run endpoint. Updates arrive about every 10 seconds; reload replays stored
+  snapshots. Existing task controls, logs, output links, task lists and default form fields are retained.
+  Tasks started before this feature keep their original text logs. A stopped monitor displays the last
+  observed state with a warning; cancellation does not imply that the GitHub workflow was cancelled.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
@@ -150,6 +157,8 @@ Run one heavy job at a time on the shared laptop, with a 3 GiB Node heap cap:
 export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
+mise exec -- node --experimental-strip-types --test scripts/workflow.test.ts
+WORKFLOW_UI_URL=https://idp.amirasyraf.dev mise exec -- node scripts/workflow-ui.mjs
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
 ```
@@ -157,6 +166,12 @@ docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest 
 Backend build bundles the frontend. The Dockerfile uses Backstage's host-build
 skeleton/bundle approach and installs Linux-native production dependencies in
 the arm64 image; it never copies macOS node_modules. `openssh-client` is present.
+The workflow tests exercise job ordering, all three operations, skipped/failed/cancelled states,
+stored snapshot parsing, timing and the watcher-to-frontend protocol. Browser checks should also
+exercise expandable steps and the unchanged task controls against the deployed frontend; fixture
+data alone does not verify a real VM provisioning run.
+`scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
+frontend without signing in, dispatching a workflow or changing backend state.
 
 ## Deploy
 
