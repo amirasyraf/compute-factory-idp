@@ -6,6 +6,7 @@ import { SignInPage } from '@backstage/core-components';
 import vmStatus from '@internal/plugin-vm-status';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import { navModule } from './modules/nav';
+import { homeModule } from './modules/home';
 
 const signInPage = SignInPageBlueprint.make({
   params: {
@@ -31,6 +32,7 @@ export default createApp({
     catalogPlugin,
     vmStatus,
     navModule,
+    homeModule,
     createFrontendModule({ pluginId: 'app', extensions: [signInPage] }),
   ],
 });

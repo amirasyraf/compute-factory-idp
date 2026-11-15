@@ -21,4 +21,6 @@ backend.add(import('@backstage/plugin-search-backend'));
 backend.add(import('@backstage/plugin-search-backend-module-pg'));
 backend.add(import('@backstage/plugin-search-backend-module-catalog'));
 backend.add(import('@backstage/plugin-user-settings-backend'));
+// Required by the frontend user-settings storage (plugin.signal.service).
+backend.add(import('@backstage/plugin-signals-backend'));
 backend.start();
