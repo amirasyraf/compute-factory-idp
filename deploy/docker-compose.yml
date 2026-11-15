@@ -17,7 +17,8 @@ services:
     depends_on: [backstage]
   backstage:
     logging: *logging
-    image: compute-factory-idp:latest
+    # Pushed by deploy.sh to the host-local registry below.
+    image: localhost:15000/compute-factory-idp:latest
     restart: unless-stopped
     env_file: .env
     environment:
@@ -40,7 +41,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+  registry:
+    logging: *logging
+    image: registry:2
+    restart: unless-stopped
+    # Loopback only; deploy.sh reaches it through an SSH tunnel.
+    ports: ['127.0.0.1:15000:5000']
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+    volumes:
+      - registry_data:/var/lib/registry
 volumes:
+  registry_data:
   postgres_data:
   caddy_data:
   caddy_config:

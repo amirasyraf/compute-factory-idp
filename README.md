@@ -329,8 +329,12 @@ Copy `deploy/.env.example` to a gitignored file and fill the seven keys only:
 ./deploy/deploy.sh <host> <env-file>
 ```
 
-This rebuilds locally for `linux/arm64`, loads the image over SSH and starts the
-three services in `/opt/idp`. Requires mise, Docker/buildx and the local
+This rebuilds locally for `linux/arm64` (type check in parallel with the bundle build) and starts
+the services in `/opt/idp`. The image is shipped through a `registry:2` service on the host,
+bound to `127.0.0.1:15000` there and reached through an SSH tunnel on local port 15000:
+`docker push` uploads only compressed layers the host lacks (usually just the app bundle), and the
+host pulls `localhost:15000/compute-factory-idp:latest`. Afterwards it garbage-collects untagged
+registry blobs and prunes unused host images. The first deploy to a new host sends every layer. Requires mise, Docker/buildx and the local
 `~/.ssh/id_ed25519`. It is non-interactive, uses disposable-host SSH options
 without reading/writing known_hosts, and uploads `.env` with mode 0600.
 After `docker compose up` it runs `caddy reload`, because a running Caddy does not re-read its
@@ -352,5 +356,5 @@ First deploy prerequisites owned by the orchestrator:
 - Health: `https://idp.amirasyraf.dev/.backstage/health/v1/readiness` returns 200
   through Caddy (paths are proxied unchanged except the exact mock ServiceNow path described above).
 
-Postgres and Caddy state use named volumes. Re-running deploy preserves them.
+Postgres, Caddy and registry state use named volumes. Re-running deploy preserves them.
 No real host deployment is performed by this repo's build verification.
