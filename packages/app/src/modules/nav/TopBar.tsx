@@ -10,6 +10,7 @@ import { makeStyles } from '@material-ui/core';
 import SearchIcon from '@material-ui/icons/Search';
 import SettingsOutlined from '@material-ui/icons/SettingsOutlined';
 import { Mark } from './Mark';
+import { errorMessage, reportClientEvent } from '../../clientLog';
 
 const ink = '#111316';
 const mute = '#5D636B';
@@ -154,7 +155,13 @@ function useWho() {
           team: team ? `Team ${team}` : undefined,
         });
       })
-      .catch(() => {});
+      .catch(e =>
+        reportClientEvent({
+          kind: 'identity-load-failed',
+          message: errorMessage(e),
+          detail: 'top bar',
+        }),
+      );
     return () => {
       mounted = false;
     };

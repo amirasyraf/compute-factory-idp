@@ -31,3 +31,5 @@ scp "${ssh_opts[@]}" deploy/docker-compose.yml deploy/Caddyfile "$target:/opt/id
 # Feed the env over stdin, creating it with restrictive permissions from the start.
 ssh "${ssh_opts[@]}" "$target" 'umask 077; cat > /opt/idp/.env' < "$env_file"
 ssh "${ssh_opts[@]}" "$target" 'cd /opt/idp && docker compose up -d --remove-orphans'
+# A running Caddy does not re-read its bind-mounted Caddyfile; apply any change now.
+ssh "${ssh_opts[@]}" "$target" 'cd /opt/idp && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile' </dev/null

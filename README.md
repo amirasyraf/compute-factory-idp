@@ -63,6 +63,33 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
   reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
   `App.tsx` and this file.
+- `packages/app/src/ClientMonitor.tsx` (app-root element) and `clientLog.ts`:
+  - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
+    bundle. Every 60 seconds and on tab focus, the tab fetches `index.html` (served `no-store`) and
+    compares its `main.<hash>.js` with the bundle it is running. On a mismatch it shows "A new version
+    of Compute Factory is available. [Reload]". It never reloads by itself, so half-filled forms are
+    safe. Disabled on the dev server, whose bundle has no hash.
+  - **Browser error reporting.** Uncaught errors, unhandled rejections, exhausted task-update polling,
+    identity load failures and stale bundles are POSTed to the `client-log` backend plugin, at most 30
+    per page load and only once signed in.
+
+## Logging and troubleshooting
+
+- **Backstage** logs JSON to stdout. The access log line is written when a request *finishes*. With
+  `backend.trustProxy: 1` (production), audit and client-log entries carry the real client IP.
+- **Browser reports** appear as `warn` lines `Browser <kind>: <message>` with
+  `type: clientEvent`, the user, client IP, user agent, page and bundle hash
+  (`plugins/cf-backend/src/clientLog.ts`; signed-in users only, 8 KB body, 60 per user per minute).
+- **Caddy** writes a JSON access log for every request: client IP, status, size and duration.
+  `Authorization` and `Cookie` headers are redacted by Caddy.
+- GitHub API failures in the workflow monitor and demo mode include GitHub's message and
+  `x-github-request-id`. Demo provision and cleanup dispatch failures are logged as warnings.
+- Container logs rotate at 20 MB × 5 files per service.
+- From the orchestrator repo: `./poc logs [backstage|caddy|postgres|all] [since]` and
+  `./poc task <task-id>` (task status plus stored events). If the task page is blank but
+  `./poc task` shows events, the problem is delivery to the browser; check Caddy for that client's
+  `/events` requests and `whois` its IP (corporate TLS proxies such as Netskope).
+- `LOG_LEVEL=debug` in the env file raises Backstage verbosity for a deploy.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
 - `deploy/`: Caddy, Postgres and the backend/frontend bundle in Docker Compose.
 
@@ -283,7 +310,9 @@ This POC does not use unit-test scaffolding. Verification uses static checks, th
 offline workflow integration check, and focused browser smoke checks. Browser checks exercise
 expandable steps and unchanged task controls; fixture data alone does not verify a real VM run.
 The task fixture serves `/events` as a long-poll endpoint, fails if the page opens `/eventstream`, and
-checks that a changed workflow snapshot appears without a page reload.
+checks that a changed workflow snapshot appears without a page reload. Against a built (hashed)
+frontend it also simulates a deploy and checks that the new-version banner appears; on the dev
+server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state. It also checks the
 Resource catalog default, normal-user kind restrictions, admin kind selection/deep links, the VM
@@ -304,6 +333,8 @@ This rebuilds locally for `linux/arm64`, loads the image over SSH and starts the
 three services in `/opt/idp`. Requires mise, Docker/buildx and the local
 `~/.ssh/id_ed25519`. It is non-interactive, uses disposable-host SSH options
 without reading/writing known_hosts, and uploads `.env` with mode 0600.
+After `docker compose up` it runs `caddy reload`, because a running Caddy does not re-read its
+bind-mounted Caddyfile.
 The script fails immediately on a concurrent build lock instead of waiting.
 The orchestrator waits for cloud-init's `cf-idp-ready` marker first.
 

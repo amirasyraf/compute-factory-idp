@@ -47,8 +47,8 @@ type Run = {
   updated_at?: string;
 };
 class GitHubError extends Error {
-  constructor(readonly status: number) {
-    super(`GitHub API HTTP ${status}`);
+  constructor(readonly status: number, detail: string) {
+    super(`GitHub API HTTP ${status}: ${detail}`);
   }
 }
 const rejected = (error: unknown) =>
@@ -84,7 +84,17 @@ async function github<T>(path: string, body?: unknown): Promise<T> {
     signal: AbortSignal.timeout(15000),
     redirect: 'error',
   });
-  if (!response.ok) throw new GitHubError(response.status);
+  if (!response.ok) {
+    const failure = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
+    throw new GitHubError(
+      response.status,
+      `${failure.message ?? 'no message'} (${path.split('?')[0]}, request ${
+        response.headers.get('x-github-request-id') ?? 'unknown'
+      })`,
+    );
+  }
   if (response.status === 204)
     throw new Error(
       'GitHub did not return workflow run details; dispatch outcome uncertain',
@@ -456,15 +466,15 @@ export const demoModePlugin = createBackendPlugin({
                 `Demo cleanup ${vm.cleanup_reason}: ${vm.name}, run ${id}`,
               );
             } catch (error) {
+              const failure = `${
+                rejected(error)
+                  ? 'Cleanup rejected'
+                  : 'Cleanup dispatch uncertain'
+              }: ${message(error)}`;
+              logger.warn(`Demo cleanup ${vm.name}: ${failure}`);
               await db<Vm>('demo_vms')
                 .where({ name: vm.name })
-                .update({
-                  error: `${
-                    rejected(error)
-                      ? 'Cleanup rejected'
-                      : 'Cleanup dispatch uncertain'
-                  }: ${message(error)}`,
-                });
+                .update({ error: failure });
             }
           }
         }
@@ -733,6 +743,11 @@ export const demoModePlugin = createBackendPlugin({
                   workflowRunHtmlUrl: `https://github.com/${repository}/actions/runs/${id}`,
                 });
               } catch (error) {
+                logger.warn(
+                  `Provision dispatch for ${name} (task ${requestId}) failed: ${message(
+                    error,
+                  )}`,
+                );
                 if (rejected(error)) {
                   await db<Vm>('demo_vms')
                     .where({ name, request_id: requestId })

@@ -1,5 +1,10 @@
+# Rotate container logs so the access log cannot fill the host disk.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: 20m, max-file: '5' }
 services:
   caddy:
+    logging: *logging
     image: caddy:2
     restart: unless-stopped
     ports: ['80:80', '443:443']
@@ -11,6 +16,7 @@ services:
       - caddy_config:/config
     depends_on: [backstage]
   backstage:
+    logging: *logging
     image: compute-factory-idp:latest
     restart: unless-stopped
     env_file: .env
@@ -20,6 +26,7 @@ services:
       postgres:
         condition: service_healthy
   postgres:
+    logging: *logging
     image: postgres:17
     restart: unless-stopped
     environment:

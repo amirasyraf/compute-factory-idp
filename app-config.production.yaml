@@ -6,6 +6,9 @@ computeFactory:
 backend:
   baseUrl: https://${IDP_DOMAIN}
   listen: { host: 0.0.0.0, port: 7007 }
+  # Exactly one proxy hop (Caddy, which replaces any client X-Forwarded-For), so audit
+  # and client-log entries record the real client IP instead of Caddy's container IP.
+  trustProxy: 1
   cors:
     origin: https://${IDP_DOMAIN}
   database:

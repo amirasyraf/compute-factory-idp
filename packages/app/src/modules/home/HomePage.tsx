@@ -3,6 +3,7 @@ import { Entity } from '@backstage/catalog-model';
 import { Link } from '@backstage/core-components';
 import { identityApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
+import { errorMessage, reportClientEvent } from '../../clientLog';
 import {
   PipelineLine,
   STATIONS,
@@ -437,7 +438,13 @@ export function HomePage() {
           team: teamsLabel(user.ownershipEntityRefs),
         });
       })
-      .catch(() => {});
+      .catch(e =>
+        reportClientEvent({
+          kind: 'identity-load-failed',
+          message: errorMessage(e),
+          detail: 'home page',
+        }),
+      );
     return () => {
       mounted = false;
     };

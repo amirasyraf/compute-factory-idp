@@ -314,6 +314,34 @@ try {
   console.log(
     'HOME UI PASS: top bar, team VM table with pipeline line, next action and empty filter state (fixture APIs)',
   );
+  const banner = page.getByText('A new version of Compute Factory is available.');
+  const running = await page.evaluate(
+    () =>
+      /\/static\/main\.([0-9a-f]{8,})\.js/.exec(
+        document.querySelector('script[src*="/static/main."]')?.src ?? '',
+      )?.[1],
+  );
+  if (!running) {
+    console.log('VERSION BANNER SKIPPED: unhashed dev-server bundle');
+  } else {
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForTimeout(1000);
+    await expect(banner).toHaveCount(0);
+    // Simulate a deploy: index.html now references a different bundle.
+    await page.route(new URL('/', base).href, route =>
+      route.fulfill({
+        contentType: 'text/html',
+        body: '<script defer src="/static/main.0123456789ab.js"></script>',
+      }),
+    );
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(banner).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Reload' })).toBeVisible();
+    assertNoErrors(errors);
+    console.log(
+      'VERSION BANNER PASS: hidden while current, shown after the deployed bundle changes',
+    );
+  }
 } finally {
   await browser.close();
 }

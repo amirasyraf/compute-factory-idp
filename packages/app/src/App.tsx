@@ -1,5 +1,6 @@
 import { createApp } from '@backstage/frontend-defaults';
 import {
+  AppRootElementBlueprint,
   coreExtensionData,
   createFrontendModule,
   discoveryApiRef,
@@ -22,11 +23,18 @@ import { CatalogPage } from './CatalogPage';
 import { cfLightTheme } from './theme/cfTheme';
 import userSettingsPlugin from '@backstage/plugin-user-settings/alpha';
 import { SettingsGeneral } from './SettingsGeneral';
+import { ClientMonitor } from './ClientMonitor';
 
 const signInPage = SignInPageBlueprint.make({
   params: {
     loader: async () => props => <PasswordSignInPage {...props} />,
   },
+});
+
+// New-version banner and browser error reporting (see ClientMonitor.tsx).
+const clientMonitor = AppRootElementBlueprint.make({
+  name: 'client-monitor',
+  params: { element: <ClientMonitor /> },
 });
 
 // Override only the task sub-page, preserving all default fields and task UI.
@@ -111,7 +119,7 @@ export default createApp({
     homeModule,
     createFrontendModule({
       pluginId: 'app',
-      extensions: [signInPage, cfLightTheme],
+      extensions: [signInPage, cfLightTheme, clientMonitor],
     }),
   ],
 });

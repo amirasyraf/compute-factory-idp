@@ -222,8 +222,9 @@ export function VmStatusCard() {
         else setRemoved(true);
         setLastRefreshed(new Date());
         setError(undefined);
-      } catch {
-        if (!disposed) setError('Live refresh failed; retrying.');
+      } catch (e) {
+        if (!disposed)
+          setError(`Live refresh failed (${(e as Error).message}); retrying.`);
       } finally {
         fetching = false;
       }

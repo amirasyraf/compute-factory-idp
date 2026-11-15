@@ -95,8 +95,14 @@ async function getJson<T>(url: string, token: string): Promise<T> {
     },
   });
   if (!response.ok) {
+    // GitHub's message and request ID make rate limits and token problems obvious.
+    const body = (await response.json().catch(() => ({}))) as {
+      message?: string;
+    };
     const error = new Error(
-      `GitHub API returned ${response.status} for workflow status`,
+      `GitHub API returned ${response.status} for workflow status: ${
+        body.message ?? 'no message'
+      } (request ${response.headers.get('x-github-request-id') ?? 'unknown'})`,
     ) as Error & { status: number };
     error.status = response.status;
     throw error;

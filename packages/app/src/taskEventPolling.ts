@@ -3,6 +3,7 @@ import type {
   LogEvent,
   ScaffolderStreamLogsOptions,
 } from '@backstage/plugin-scaffolder-react';
+import { errorMessage, reportClientEvent } from './clientLog';
 
 type Options = ConstructorParameters<typeof ScaffolderClient>[0];
 type LogObservable = ReturnType<ScaffolderClient['streamLogs']>;
@@ -83,13 +84,17 @@ export class PollingScaffolderClient extends ScaffolderClient {
         } catch (error) {
           if (signal.aborted) return;
           if (failures >= backoffMs.length) {
-            observer.error?.(
-              new Error(
-                `Task updates failed after ${failures + 1} attempts (${
-                  error instanceof Error ? error.message : String(error)
-                }); retrying`,
-              ),
+            const failure = new Error(
+              `Task updates failed after ${failures + 1} attempts (${errorMessage(
+                error,
+              )}); retrying`,
             );
+            void reportClientEvent({
+              kind: 'task-updates-failed',
+              message: failure.message,
+              detail: `task ${taskId}, after event ${lastId ?? 'none'}`,
+            });
+            observer.error?.(failure);
             return;
           }
           await sleep(backoffMs[failures++], signal);
