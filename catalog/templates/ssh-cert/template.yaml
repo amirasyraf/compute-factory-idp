@@ -6,6 +6,9 @@ metadata:
   description: Issue a personal 12-hour certificate for your teams' VMs.
 spec:
   owner: group:default/platform-admins
+  presentation:
+    buttonLabels:
+      createButtonText: Get certificate
   type: service
   parameters:
     - title: Your public key
