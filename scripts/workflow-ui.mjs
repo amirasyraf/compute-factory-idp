@@ -45,6 +45,11 @@ const task = {
     },
     steps: [
       {
+        id: 'servicenow',
+        name: 'Create ServiceNow request (mock)',
+        action: 'cf:servicenow:create',
+      },
+      {
         id: 'dispatch',
         name: 'Start VM pipeline',
         action: 'github:actions:dispatch',
@@ -128,6 +133,16 @@ try {
           id: 1,
           type: 'log',
           body: {
+            stepId: 'servicenow',
+            status: 'completed',
+            message:
+              'HTTP 201 Created — mock ServiceNow request RITM0000001234 accepted',
+          },
+        },
+        {
+          id: 2,
+          type: 'log',
+          body: {
             stepId: 'monitor',
             status: 'processing',
             message: `CF_WORKFLOW_PROGRESS_V1 ${JSON.stringify(snapshot)}`,
@@ -179,6 +194,9 @@ try {
   await page.goto(`${base}/create/tasks/${task.id}`);
   const graph = page.getByRole('region', { name: 'GitHub Actions stages' });
   await expect(graph).toBeVisible();
+  await expect(
+    page.getByText('Create ServiceNow request (mock)', { exact: true }),
+  ).toBeVisible();
   await expect(graph.getByText('Provision', { exact: true })).toBeVisible();
   await expect(graph.getByText('Baseline', { exact: true })).toBeVisible();
   await graph.locator('details').nth(2).locator('summary').click();
@@ -212,7 +230,7 @@ try {
     throw new Error('Stage graph should scroll on narrow screens');
   assertNoErrors(errors);
   console.log(
-    'WORKFLOW UI PASS: stages, expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
+    'WORKFLOW UI PASS: pre-GHA mock REST step, stages, expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${base}/catalog`);

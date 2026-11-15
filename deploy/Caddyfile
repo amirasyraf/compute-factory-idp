@@ -1,3 +1,6 @@
 {$IDP_DOMAIN} {
+  # Public demo URL; preserve Backstage's authenticated plugin router behind it.
+  @mockServiceNow path /mock-rest/servicenow
+  rewrite @mockServiceNow /api/mock-rest/servicenow
   reverse_proxy backstage:7007
 }

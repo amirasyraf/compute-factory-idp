@@ -18,6 +18,8 @@ app:
               spec.type: vm
 organization:
   name: Compute Factory
+computeFactory:
+  mockServiceNowUrl: http://localhost:7007/api/mock-rest/servicenow
 backend:
   baseUrl: http://localhost:7007
   listen:

@@ -37,9 +37,10 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   annotations as the VM card, polls every 10 seconds and is team-scoped by the existing catalog
   permission policy (admins see every VM).
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
-  `scaffolder` (Backstage extension points belong to separate plugin IDs).
+  `scaffolder`, plus the `mock-rest` plugin (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
   every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
+  `cf:servicenow:create` makes a real HTTP POST to the mock REST receiver before VM workflow dispatch.
 - `packages/app/src/WorkflowTasks.tsx`: augments the stock Scaffolder task detail page with a
   horizontally scrollable stage view, individual job status/duration and expandable step details.
   It reads versioned snapshots from the existing task-owned event stream, not a browser GitHub token
@@ -173,14 +174,39 @@ mise install
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs install --immutable
 ```
 
-Set `IDP_USERS_B64` in your shell using a throwaway password file for local users.
-There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts a temporary local backend container, checks
-readiness/org/locations/templates and always stops it; run it with the token
+Set `IDP_USERS_B64` in your shell using a throwaway password file for interactive local development.
+There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts temporary local backend and Caddy containers, checks
+readiness/org/locations/templates and the authenticated mock REST action, and stops both; run it with the token
 in the environment after the image build. It uses SQLite and a dummy catalog-only
-static token; `IDP_USERS_B64` and the GitHub integration token are inherited by
-Docker through environment only. No production configuration or AWS credentials
-are needed. This API smoke is not a replacement for browser verification of
-the home, catalog, Create pages, VM process card or live Scaffolder process stream.
+static token and freshly generated throwaway login; the GitHub integration token is inherited by
+Docker through environment only. It exercises the real Caddy rewrite, backend-to-backend POST,
+HTTP 201 and matching caller/receiver logs, rejected anonymous/catalog-token/user calls, and failed-step
+short-circuiting on HTTP 503, without dispatching GHA. It also runs the existing fixture-API browser
+checks against this local frontend. No production configuration or AWS credentials are needed.
+These checks do not verify live VM provisioning or a real ServiceNow service.
+
+### Mock ServiceNow REST demo
+
+The VM request starts with **Create ServiceNow request (mock)**, before **Start VM pipeline** and
+**Monitor VM workflow**. `cf:servicenow:create` sends VM name/team/platform/OS/size, the authenticated
+requester's entity ref and the task ID to `POST https://idp.amirasyraf.dev/mock-rest/servicenow`.
+Caddy rewrites that exact path to the `mock-rest` plugin's `/api/mock-rest/servicenow` route.
+The receiver returns HTTP 201 with `{number: "RITM…", status: "created", mock: true, requestId}`.
+Task logs show the URL, status and fake number; successful task output repeats the number.
+The number is deterministic for a task ID, but the receiver is stateless: no real ticket, approval,
+record lookup, persistence or provisioning-status update is implemented. Refry/destroy and direct GHA
+dispatch do not call this demo endpoint.
+
+The endpoint accepts only Backstage service credentials from `plugin:scaffolder`; it is not an
+anonymous public webhook. The existing catalog-only external token stays catalog-only. No new shared
+secret is needed. The action uses a backend-configured URL constrained to this IDP origin and exact
+mock path, disallows redirects, and aborts after ten seconds or task cancellation. A non-201 or malformed
+response fails the task before GHA starts. It supports Template Editor dry-runs because it creates no
+persistent resources (the dry-run still makes the real POST). No tokens or full request bodies are logged.
+Local development uses `computeFactory.mockServiceNowUrl` at `http://localhost:7007/api/mock-rest/servicenow`;
+production overrides it with the public HTTPS demo path. The smoke check uses a disposable local Caddy.
+
+For interactive development:
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
@@ -203,6 +229,7 @@ mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
 WORKFLOW_UI_URL=https://idp.amirasyraf.dev mise exec -- node scripts/workflow-ui.mjs
 GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
 docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
+GITHUB_TOKEN="$(gh auth token)" mise exec -- node scripts/smoke.mjs
 ```
 
 Backend build bundles the frontend. The Dockerfile uses Backstage's host-build
@@ -246,7 +273,7 @@ First deploy prerequisites owned by the orchestrator:
   `BACKSTAGE_TOKEN` matches the runtime value. External access is restricted to
   the `catalog` plugin using the current `backend.auth.externalAccess` shape.
 - Health: `https://idp.amirasyraf.dev/.backstage/health/v1/readiness` returns 200
-  through Caddy (all paths are proxied unchanged).
+  through Caddy (paths are proxied unchanged except the exact mock ServiceNow path described above).
 
 Postgres and Caddy state use named volumes. Re-running deploy preserves them.
 No real host deployment is performed by this repo's build verification.

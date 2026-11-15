@@ -3,6 +3,7 @@ import {
   permissionModule,
   sshModule,
   passwordAuthModule,
+  mockRestPlugin,
 } from '@internal/plugin-cf-backend';
 
 const backend = createBackend();
@@ -19,6 +20,7 @@ backend.add(import('@backstage/plugin-scaffolder-backend-module-github'));
 backend.add(import('@backstage/plugin-permission-backend'));
 backend.add(permissionModule);
 backend.add(sshModule);
+backend.add(mockRestPlugin);
 backend.add(import('@backstage/plugin-search-backend'));
 backend.add(import('@backstage/plugin-search-backend-module-pg'));
 backend.add(import('@backstage/plugin-search-backend-module-catalog'));
