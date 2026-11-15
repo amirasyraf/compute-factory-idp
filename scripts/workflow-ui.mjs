@@ -158,7 +158,13 @@ try {
         },
       };
     } else if (path.endsWith('/entities/by-query')) {
-      json = { items: [], totalItems: 0, pageInfo: {} };
+      const query = `${decodeURIComponent(
+        new URL(route.request().url()).search,
+      )} ${route.request().postData() ?? ''}`;
+      const resources = /kind\W+resource/i.test(query);
+      json = resources
+        ? { items: [vm], totalItems: 1, pageInfo: {} }
+        : { items: [], totalItems: 0, pageInfo: {} };
     } else if (path.endsWith('/entities/by-refs')) {
       json = { items: [template] };
     } else if (path.endsWith('/ancestry')) {
@@ -166,7 +172,7 @@ try {
     } else if (path.includes('/entities/by-name/')) {
       json = path.includes('/resource/') ? vm : template;
     } else if (path.endsWith('/entities')) {
-      json = [];
+      json = [vm];
     }
     await route.fulfill({ json });
   });
@@ -215,6 +221,14 @@ try {
     .locator('..')
     .getByRole('button');
   await expect(kind).toHaveText('Resource');
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Resources', exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Pipeline' }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Pipeline stages')).toBeVisible();
+  await expect(page.getByText('Catalog', { exact: true })).toHaveCount(0);
   await kind.click();
   await expect(page.getByRole('option')).toHaveCount(1);
   await expect(
@@ -237,12 +251,13 @@ try {
   await expect(kind).toHaveText('User');
   assertNoErrors(errors);
   console.log(
-    'CATALOG UI PASS: Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
+    'CATALOG UI PASS: own header, VM state/pipeline columns, Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
   );
   await page.goto(`${base}/catalog/default/resource/spec-vm`);
   await expect(
-    page.getByText('Desired configuration and access', { exact: true }),
+    page.getByRole('heading', { name: 'Desired configuration' }),
   ).toBeVisible();
+  await expect(page.getByLabel('Pipeline stages')).toBeVisible();
   await expect(page.getByText('aws / ubuntu', { exact: true })).toBeVisible();
   await expect(page.getByText('git, nginx', { exact: true })).toBeVisible();
   await expect(
@@ -254,6 +269,21 @@ try {
   assertNoErrors(errors);
   console.log(
     'VM SPEC UI PASS: desired configuration renders from spec without desired-input annotations (fixture APIs)',
+  );
+  await page.goto(`${base}/`);
+  await expect(
+    page.getByRole('heading', { name: /^Good (morning|afternoon|evening)/ }),
+  ).toBeVisible();
+  const row = page.getByRole('row', { name: /spec-vm/ });
+  await expect(row.getByLabel('Pipeline stages')).toBeVisible();
+  await expect(
+    row.getByRole('link', { name: 'Get SSH certificate' }),
+  ).toBeVisible();
+  await page.getByRole('tab', { name: /Failed/ }).click();
+  await expect(page.getByText('No machines match this filter.')).toBeVisible();
+  assertNoErrors(errors);
+  console.log(
+    'HOME UI PASS: top bar, team VM table with pipeline line, next action and empty filter state (fixture APIs)',
   );
 } finally {
   await browser.close();

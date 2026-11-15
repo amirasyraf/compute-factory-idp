@@ -6,12 +6,16 @@ app:
     - page:home:
         config:
           path: /
-          defaultConfig:
-            - component: ComputeFactory
-              column: 0
-              row: 0
-              width: 12
-              height: 8
+    # Light mode only: the Compute Factory theme replaces theme:app/light.
+    - theme:app/dark: false
+    # VM pages carry owner, lifecycle and source in their own header; the
+    # stock About card is kept for every other entity.
+    - entity-card:catalog/about:
+        config:
+          filter:
+            $not:
+              kind: resource
+              spec.type: vm
 organization:
   name: Compute Factory
 backend:

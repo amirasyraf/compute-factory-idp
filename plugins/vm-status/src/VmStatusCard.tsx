@@ -1,46 +1,21 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { stringifyEntityRef } from '@backstage/catalog-model';
 import { InfoCard, Link } from '@backstage/core-components';
 import { useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
-import {
-  Box,
-  Chip,
-  Divider,
-  Grid,
-  List,
-  ListItem,
-  ListItemIcon,
-  ListItemText,
-  Typography,
-} from '@material-ui/core';
-import CheckCircle from '@material-ui/icons/CheckCircle';
-import ErrorIcon from '@material-ui/icons/Error';
-import HourglassEmpty from '@material-ui/icons/HourglassEmpty';
-import PlayCircleOutline from '@material-ui/icons/PlayCircleOutline';
-import SkipNext from '@material-ui/icons/SkipNext';
+import { makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
-
-export type PipelineStatus =
-  | 'pending'
-  | 'running'
-  | 'success'
-  | 'failed'
-  | 'skipped';
-
-export const PROCESS_ORDER = [
-  'validate',
-  'register',
-  'provision',
-  'fry-baseline',
-  'fry-software',
-  'fry-ad-join',
-  'fry-access',
-  'finalize',
-  'on-failure',
-] as const;
-
-type ProcessName = (typeof PROCESS_ORDER)[number];
+import {
+  PROCESS_ORDER,
+  PipelineLine,
+  PipelineStatus,
+  ProcessName,
+  getPipelineProcesses,
+  statusLabel,
+  vmColors,
+  vmState,
+  vmStateLabel,
+} from './pipeline';
 
 const processInfo: Record<ProcessName, { label: string; description: string }> =
   {
@@ -88,128 +63,108 @@ const processInfo: Record<ProcessName, { label: string; description: string }> =
     },
   };
 
-const statusIcons: Record<PipelineStatus, JSX.Element> = {
-  success: <CheckCircle style={{ color: '#4caf50' }} />,
-  failed: <ErrorIcon color="error" />,
-  pending: <HourglassEmpty color="disabled" />,
-  running: <PlayCircleOutline color="primary" />,
-  skipped: <SkipNext color="disabled" />,
-};
-
-const validStatuses = new Set<PipelineStatus>([
-  'pending',
-  'running',
-  'success',
-  'failed',
-  'skipped',
-]);
-
-function parseStatuses(
-  value: string | undefined,
-): Record<string, PipelineStatus> {
-  if (!value) return {};
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, status]) =>
-        validStatuses.has(status as PipelineStatus),
-      ),
-    ) as Record<string, PipelineStatus>;
-  } catch {
-    return {};
-  }
+function statusDot(status: PipelineStatus): string {
+  if (status === 'success' || status === 'running') return vmColors.blue;
+  if (status === 'failed') return vmColors.red;
+  return '#C9CDD2';
 }
 
-/**
- * Converts the five legacy stage annotations into the complete workflow view.
- * This keeps already-registered VMs readable while new inventory entries expose
- * the explicit cf/processes annotation.
- */
-export function getPipelineProcesses(
-  annotations: Record<string, string>,
-): Record<ProcessName, PipelineStatus> {
-  const stages = parseStatuses(annotations['cf/stages']);
-  const recorded = parseStatuses(annotations['cf/processes']);
-  const processStageMap: Record<string, string> = {
-    provision: 'provision',
-    'fry-baseline': 'baseline',
-    'fry-software': 'software',
-    'fry-ad-join': 'ad-join',
-    'fry-access': 'access',
-  };
-  const fallback = Object.fromEntries(
-    PROCESS_ORDER.map(process => {
-      if (process === 'validate' || process === 'register') {
-        return [process, 'success'];
-      }
-      if (process === 'finalize') {
-        return [
-          process,
-          annotations['cf/status'] === 'ready' ? 'success' : 'pending',
-        ];
-      }
-      if (process === 'on-failure') {
-        return [process, getFailureProcessStatus(annotations['cf/status'])];
-      }
-      return [process, stages[processStageMap[process]] ?? 'pending'];
-    }),
-  ) as Record<ProcessName, PipelineStatus>;
-
-  return Object.fromEntries(
-    PROCESS_ORDER.map(process => [
-      process,
-      recorded[process] ?? fallback[process],
-    ]),
-  ) as Record<ProcessName, PipelineStatus>;
-}
-
-export function statusLabel(status: PipelineStatus): string {
-  switch (status) {
-    case 'success':
-      return 'Completed';
-    case 'running':
-      return 'In progress';
-    case 'failed':
-      return 'Failed';
-    case 'skipped':
-      return 'Skipped';
-    default:
-      return 'Waiting';
-  }
-}
-
-function getFailureProcessStatus(status: string | undefined): PipelineStatus {
-  if (status === 'failed') return 'success';
-  if (status === 'ready') return 'skipped';
-  return 'pending';
-}
-
-function getOverallPipelineStatus(status: string): PipelineStatus {
-  if (status === 'ready') return 'success';
-  if (status === 'failed') return 'failed';
-  if (
-    status === 'provisioning' ||
-    status === 'frying' ||
-    status === 'destroying'
-  ) {
-    return 'running';
-  }
-  return 'pending';
-}
-
-function statusChipStyle(status: PipelineStatus): CSSProperties {
-  if (status === 'success')
-    return { backgroundColor: '#e8f5e9', color: '#1b5e20' };
-  if (status === 'failed')
-    return { backgroundColor: '#ffebee', color: '#b71c1c' };
-  if (status === 'running')
-    return { backgroundColor: '#e3f2fd', color: '#0d47a1' };
-  return { backgroundColor: '#f5f5f5', color: '#616161' };
-}
+const useStyles = makeStyles(theme => ({
+  head: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    flexWrap: 'wrap',
+  },
+  state: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
+  activity: { color: vmColors.mute, fontSize: 13, marginTop: 2 },
+  line: { margin: theme.spacing(3, 0, 1) },
+  note: { color: vmColors.mute, fontSize: 12.5 },
+  error: { color: vmColors.redText, fontSize: 13, marginTop: 8 },
+  section: {
+    marginTop: theme.spacing(3),
+    paddingTop: theme.spacing(2),
+    borderTop: `1px solid ${theme.palette.divider}`,
+  },
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: 700,
+    margin: '0 0 10px',
+  },
+  steps: { margin: 0, padding: 0, listStyle: 'none' },
+  step: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    columnGap: 16,
+    padding: '9px 0',
+    borderBottom: `1px solid ${theme.palette.divider}`,
+    '&:last-child': { borderBottom: 0 },
+  },
+  stepLabel: { fontSize: 14, fontWeight: 600 },
+  stepDesc: { fontSize: 12.5, color: vmColors.mute, marginTop: 2 },
+  stepStatus: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    alignSelf: 'center',
+    color: vmColors.ink,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    whiteSpace: 'nowrap',
+  },
+  stepDot: { width: 8, height: 8, borderRadius: '50%', flex: 'none' },
+  facts: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gap: '12px 24px',
+    margin: 0,
+    '& dt': { fontSize: 12, color: vmColors.mute },
+    '& dd': { margin: '2px 0 0', fontSize: 14, overflowWrap: 'anywhere' },
+  },
+  command: {
+    display: 'inline-block',
+    fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
+    fontSize: 13,
+    background: '#F3F4F5',
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: 6,
+    padding: '6px 10px',
+    marginTop: 4,
+  },
+  actions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: theme.spacing(2),
+  },
+  action: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    height: 36,
+    padding: '0 14px',
+    borderRadius: 6,
+    border: `1px solid ${theme.palette.divider}`,
+    background: '#fff',
+    color: vmColors.ink,
+    fontWeight: 600,
+    fontSize: 13.5,
+    textDecoration: 'none',
+    '&:hover': { borderColor: '#C9CDD2', textDecoration: 'none' },
+  },
+  primary: {
+    background: vmColors.blue,
+    borderColor: vmColors.blue,
+    color: '#fff',
+    '&:hover': { background: '#0A4FB0', borderColor: '#0A4FB0' },
+  },
+  danger: {
+    color: vmColors.redText,
+    '&:hover': { borderColor: vmColors.red },
+  },
+}));
 
 export function VmStatusCard() {
+  const classes = useStyles();
   const { entity: initial } = useEntity();
   const api = useApi(catalogApiRef);
   const [entity, setEntity] = useState(initial);
@@ -224,7 +179,7 @@ export function VmStatusCard() {
   const annotations = entity.metadata.annotations ?? {};
   const desired = getVmConfiguration(entity.spec);
   const overallStatus = annotations['cf/status'] ?? 'unknown';
-  const status = getOverallPipelineStatus(overallStatus);
+  const state = vmState(overallStatus);
   const processes = getPipelineProcesses(annotations);
   const rows = PROCESS_ORDER.map(process => ({
     process,
@@ -233,16 +188,12 @@ export function VmStatusCard() {
   }));
   const active = rows.find(row => row.status === 'running');
   const failed = rows.find(row => row.status === 'failed');
-  const completed = rows.filter(
-    row => row.status === 'success' || row.status === 'skipped',
-  ).length;
   const ip = annotations['cf/public-ip'];
   const user = annotations['cf/ssh-user'] || 'ubuntu';
   const prefill = encodeURIComponent(
     JSON.stringify({ vm: stringifyEntityRef(entity) }),
   );
   const runUrl = annotations['cf/run-url'];
-  const overallLabel = statusLabel(status);
   let currentActivity = 'Waiting for pipeline updates';
   if (failed) currentActivity = `${failed.label} failed`;
   else if (active) currentActivity = active.label;
@@ -278,150 +229,146 @@ export function VmStatusCard() {
 
   return (
     <InfoCard title="VM pipeline">
-      <Box display="flex" justifyContent="space-between" alignItems="center">
-        <Typography variant="h6">{overallLabel}</Typography>
-        <Chip label={overallStatus} style={statusChipStyle(status)} />
-      </Box>
-      <Typography variant="body2" color="textSecondary">
-        Current activity: {currentActivity}
-      </Typography>
-      {error && <Typography color="error">{error}</Typography>}
+      <div className={classes.head}>
+        <div>
+          <div
+            className={classes.state}
+            style={{ color: state === 'failed' ? vmColors.redText : undefined }}
+          >
+            {vmStateLabel(overallStatus, processes)}
+          </div>
+          <div className={classes.activity}>{currentActivity}</div>
+        </div>
+      </div>
 
-      <Box mt={2} mb={1}>
-        <Box
-          style={{
-            height: 6,
-            borderRadius: 3,
-            background: '#eeeeee',
-            overflow: 'hidden',
-          }}
-        >
-          <Box
-            style={{
-              height: '100%',
-              width: `${(completed / PROCESS_ORDER.length) * 100}%`,
-              background: '#4caf50',
-              transition: 'width 300ms ease',
-            }}
-          />
-        </Box>
-        <Typography variant="caption" color="textSecondary">
-          {completed} of {PROCESS_ORDER.length} pipeline processes complete or
-          skipped
-        </Typography>
-      </Box>
+      <div className={classes.line}>
+        <PipelineLine
+          processes={processes}
+          retired={state === 'destroying'}
+          size="large"
+        />
+      </div>
+      <div className={classes.note}>
+        {state === 'ready' || state === 'failed'
+          ? `Last checked ${lastRefreshed.toLocaleTimeString()}.`
+          : `Refreshes about every 10 seconds while the pipeline is active. Last checked ${lastRefreshed.toLocaleTimeString()}.`}
+      </div>
+      {error && <div className={classes.error}>{error}</div>}
 
-      <Typography variant="subtitle2">Pipeline processes</Typography>
-      <List dense>
-        {rows.map(row => (
-          <ListItem key={row.process} divider alignItems="flex-start">
-            <ListItemIcon>{statusIcons[row.status]}</ListItemIcon>
-            <ListItemText
-              primary={
-                <Box display="flex" alignItems="center" gridGap={8}>
-                  <Typography variant="body2">{row.label}</Typography>
-                  <Chip
-                    size="small"
-                    label={statusLabel(row.status)}
-                    style={statusChipStyle(row.status)}
-                  />
-                </Box>
-              }
-              secondary={row.description}
-            />
-          </ListItem>
-        ))}
-      </List>
-
-      <Typography variant="caption" color="textSecondary">
-        Live catalog status; refreshes every 10 seconds while the pipeline is
-        active. Last checked {lastRefreshed.toLocaleTimeString()}.
-      </Typography>
-
-      <Divider style={{ margin: '16px 0' }} />
-      <Typography variant="subtitle2">
-        Desired configuration and access
-      </Typography>
-      <Grid container spacing={1} style={{ marginTop: 4 }}>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            Team
-          </Typography>
-          <Typography variant="body2">{desired.team}</Typography>
-        </Grid>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            Platform / OS
-          </Typography>
-          <Typography variant="body2">
-            {desired.platform} / {desired.os}
-          </Typography>
-        </Grid>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            Size
-          </Typography>
-          <Typography variant="body2">{desired.size}</Typography>
-        </Grid>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            Software
-          </Typography>
-          <Typography variant="body2">{desired.software}</Typography>
-        </Grid>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            AD join
-          </Typography>
-          <Typography variant="body2">{desired.adJoin}</Typography>
-        </Grid>
-        <Grid item xs={6}>
-          <Typography variant="caption" color="textSecondary">
-            Billing (self-reported)
-          </Typography>
-          <Typography variant="body2">{desired.billing}</Typography>
-        </Grid>
-        <Grid item xs={12}>
-          <Typography variant="caption" color="textSecondary">
-            Cloud tags
-          </Typography>
-          <Typography variant="body2">{desired.cloudTags}</Typography>
-        </Grid>
-      </Grid>
-
-      <Box mt={2}>
-        <Typography variant="body2">
-          IP: {ip || 'Pending'} · SSH user: {user}
-        </Typography>
+      <div className={classes.section}>
+        <h3 className={classes.sectionTitle}>Access</h3>
+        <dl className={classes.facts}>
+          <div>
+            <dt>IP address</dt>
+            <dd>{ip || 'Pending'}</dd>
+          </div>
+          <div>
+            <dt>SSH user</dt>
+            <dd>{user}</dd>
+          </div>
+        </dl>
         {ip && (
-          <Box my={1}>
-            <code>
-              ssh {user}@{ip}
-            </code>
-          </Box>
+          <code className={classes.command}>
+            ssh {user}@{ip}
+          </code>
         )}
-        {runUrl && (
-          <Box my={1}>
-            <a href={runUrl} target="_blank" rel="noreferrer">
-              Open full GitHub Actions run
+        <div className={classes.actions}>
+          <Link
+            to="/create/templates/default/ssh-cert"
+            className={`${classes.action} ${
+              state === 'ready' ? classes.primary : ''
+            }`}
+          >
+            Get SSH certificate
+          </Link>
+          {runUrl && (
+            <a
+              href={runUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={`${classes.action} ${
+                state === 'failed' ? classes.primary : ''
+              }`}
+            >
+              View run on GitHub
             </a>
-          </Box>
-        )}
-      </Box>
+          )}
+          <Link
+            to={`/create/templates/default/vm-refry?formData=${prefill}`}
+            className={classes.action}
+          >
+            Refry
+          </Link>
+          <Link
+            to={`/create/templates/default/vm-destroy?formData=${prefill}`}
+            className={`${classes.action} ${classes.danger}`}
+          >
+            Destroy VM
+          </Link>
+        </div>
+      </div>
 
-      <Box my={1}>
-        <Link to="/create/templates/default/ssh-cert">Get SSH certificate</Link>
-      </Box>
-      <Box my={1}>
-        <Link to={`/create/templates/default/vm-refry?formData=${prefill}`}>
-          Re-run fry stage
-        </Link>
-      </Box>
-      <Box my={1}>
-        <Link to={`/create/templates/default/vm-destroy?formData=${prefill}`}>
-          Destroy VM
-        </Link>
-      </Box>
+      <div className={classes.section}>
+        <h3 className={classes.sectionTitle}>Pipeline processes</h3>
+        <ol className={classes.steps}>
+          {rows.map(row => (
+            <li key={row.process} className={classes.step}>
+              <div>
+                <div className={classes.stepLabel}>{row.label}</div>
+                <div className={classes.stepDesc}>{row.description}</div>
+              </div>
+              <span
+                className={classes.stepStatus}
+                style={
+                  row.status === 'failed' ? { color: vmColors.redText } : {}
+                }
+              >
+                <i
+                  className={classes.stepDot}
+                  style={{ background: statusDot(row.status) }}
+                />
+                {statusLabel(row.status)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <div className={classes.section}>
+        <h3 className={classes.sectionTitle}>Desired configuration</h3>
+        <dl className={classes.facts}>
+          <div>
+            <dt>Team</dt>
+            <dd>{desired.team}</dd>
+          </div>
+          <div>
+            <dt>Platform / OS</dt>
+            <dd>
+              {desired.platform} / {desired.os}
+            </dd>
+          </div>
+          <div>
+            <dt>Size</dt>
+            <dd>{desired.size}</dd>
+          </div>
+          <div>
+            <dt>Software</dt>
+            <dd>{desired.software}</dd>
+          </div>
+          <div>
+            <dt>AD join</dt>
+            <dd>{desired.adJoin}</dd>
+          </div>
+          <div>
+            <dt>Billing (self-reported)</dt>
+            <dd>{desired.billing}</dd>
+          </div>
+          <div>
+            <dt>Cloud tags</dt>
+            <dd>{desired.cloudTags}</dd>
+          </div>
+        </dl>
+      </div>
     </InfoCard>
   );
 }

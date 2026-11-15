@@ -13,6 +13,27 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   Desired software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
   Billing metadata is self-reported, not organizational billing authorization. Custom spec validation is
   performed by the platform workflow; malformed custom fields are rendered defensively by the card.
+  It also exports the shared pipeline helpers and `PipelineLine` (the eight stations drawn as a transit
+  line; skipped stages are drawn as non-stops) used by the home page. For VM entities only it supplies
+  an `EntityHeaderLayoutBlueprint` header (size bullet, name, team, OS/platform, lifecycle, inventory
+  source link, favourite star) and an `EntityContentLayoutBlueprint` layout that puts the VM card first.
+  The stock About card is hidden for VMs through `entity-card:catalog/about` config (`$not` filter);
+  other entities keep it. The custom header does not render the stock entity context menu (unregister,
+  inspect) on VM pages; destroy remains the supported way to remove a VM.
+- `packages/app/src/SettingsGeneral.tsx`: overrides `sub-page:user-settings/general` with only the
+  profile and identity cards (the app is light-only and has no sidebar to pin).
+- `packages/app/src/theme/`: the Compute Factory look (see `packages/app/DESIGN.md`). `cfTheme.tsx`
+  replaces `theme:app/light` with a unified MUI v4/v5 theme (plain white page headers, no gradient
+  banners); `global.css` sets BUI tokens, self-hosted fonts and browser surfaces. Dark mode is disabled
+  with `theme:app/dark: false`.
+- `packages/app/src/modules/nav/`: overrides `app/layout` to put the nav in a top bar instead of a
+  sidebar, and supplies that bar through `NavContentBlueprint` (Home, Resources, Create, Search,
+  search modal, settings and the signed-in user).
+- `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` layout that replaces the widget grid
+  with the team's VMs: status counts as filters, and each VM's pipeline line and next action
+  (Get SSH certificate when ready, View run while building or failed). It reads the same catalog
+  annotations as the VM card, polls every 10 seconds and is team-scoped by the existing catalog
+  permission policy (admins see every VM).
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder` (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
@@ -31,8 +52,16 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 
 The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
-`app.extensions.page:home` mounts Home at `/`, with the Compute Factory card as
-the default layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
+`app.extensions.page:home` mounts Home at `/`, rendered by the Compute Factory home layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
+`packages/app/src/CatalogPage.tsx` overrides `page:catalog` (in `App.tsx`) with a Compute Factory
+page shell: a "Resources" heading and Request VM button, with the stock `CatalogFilterLayout`,
+the `catalog-filter` extension inputs (including `CatalogKindFilter`) and the stock `CatalogTable`
+for search, sorting and paging. When every listed entity is a VM, the table shows State and
+Pipeline (the `PipelineLine`, without labels) columns instead of System, Description and Tags;
+other lists keep the stock columns. The stock page's permission-gated Create button, support
+button and export button are not rendered (export was never enabled). Both `page:catalog` and
+`page:catalog/entity` are overridden with `noHeader: true`, so the plugin "Catalog" header bar is
+not drawn above the list or any entity page; entity pages keep their own headers.
 `CatalogKindFilter.tsx` gives normal users only the Resource kind, including normalization of
 non-Resource catalog filter URLs. Members of `group:default/platform-admins` retain the full kind
 picker and explicit kind links. This is a catalog-list UI restriction, not an API permission change:
@@ -179,7 +208,8 @@ offline workflow integration check, and focused browser smoke checks. Browser ch
 expandable steps and unchanged task controls; fixture data alone does not verify a real VM run.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state. It also checks the
-Resource catalog default, normal-user kind restrictions, and admin kind selection/deep links.
+Resource catalog default, normal-user kind restrictions, admin kind selection/deep links, the VM
+card, and the home page's VM table, pipeline line, next action and empty filter state.
 
 ## Deploy
 

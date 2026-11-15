@@ -12,6 +12,10 @@ import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import { navModule } from './modules/nav';
 import { homeModule } from './modules/home';
 import { CatalogKindFilter } from './CatalogKindFilter';
+import { CatalogPage } from './CatalogPage';
+import { cfLightTheme } from './theme/cfTheme';
+import userSettingsPlugin from '@backstage/plugin-user-settings/alpha';
+import { SettingsGeneral } from './SettingsGeneral';
 
 const signInPage = SignInPageBlueprint.make({
   params: {
@@ -44,15 +48,50 @@ const catalog = catalogPlugin.withOverrides({
     catalogPlugin.getExtension('catalog-filter:catalog/kind').override({
       params: { loader: async () => <CatalogKindFilter /> },
     }),
+    // Own page shell and VM columns; filters still come from the extension inputs.
+    catalogPlugin.getExtension('page:catalog').override({
+      factory(originalFactory, { inputs, config }) {
+        const filters = inputs.filters.map(filter =>
+          filter.get(coreExtensionData.reactElement),
+        );
+        return originalFactory({
+          params: {
+            noHeader: true,
+            loader: async () => (
+              <CatalogPage
+                filters={<>{filters}</>}
+                pagination={config.pagination}
+              />
+            ),
+          },
+        });
+      },
+    }),
+    // Entity pages draw their own headers; drop the plugin "Catalog" bar.
+    catalogPlugin.getExtension('page:catalog/entity').override({
+      params: { noHeader: true },
+    }),
   ],
 });
+const userSettings = userSettingsPlugin.withOverrides({
+  extensions: [
+    userSettingsPlugin.getExtension('sub-page:user-settings/general').override({
+      params: { loader: async () => <SettingsGeneral /> },
+    }),
+  ],
+});
+
 export default createApp({
   features: [
     catalog,
+    userSettings,
     scaffolder,
     vmStatus,
     navModule,
     homeModule,
-    createFrontendModule({ pluginId: 'app', extensions: [signInPage] }),
+    createFrontendModule({
+      pluginId: 'app',
+      extensions: [signInPage, cfLightTheme],
+    }),
   ],
 });

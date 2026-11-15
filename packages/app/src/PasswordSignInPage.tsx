@@ -153,7 +153,11 @@ export function PasswordSignInPage({ onSignInSuccess }: SignInPageProps) {
       <Box mt={10}>
         <Card>
           <CardContent>
-            <Typography variant="h5" component="h1">
+            <Typography
+              variant="h5"
+              component="h1"
+              style={{ fontSize: 24, letterSpacing: '-0.015em' }}
+            >
               Compute Factory
             </Typography>
             <Typography>Sign in with your username and password.</Typography>

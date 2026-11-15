@@ -1,0 +1,81 @@
+/* Compute Factory: Line Diagram world. BUI tokens, browser surfaces, shell sizing. */
+:root,
+[data-theme-mode='light'] {
+  --cf-topbar: 56px;
+  --bui-font-regular: 'Schibsted Grotesk Variable', 'Schibsted Grotesk',
+    system-ui, sans-serif;
+  --bui-font-monospace: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo,
+    monospace;
+  --bui-bg-app: #ffffff;
+  --bui-bg-neutral-1: #ffffff;
+  --bui-bg-neutral-2: #f3f4f5;
+  --bui-border-1: #e3e5e8;
+  --bui-border-2: #d2d5d9;
+  --bui-fg-primary: #111316;
+  --bui-fg-secondary: #5d636b;
+  --bui-bg-solid: #0b5fd3;
+  --bui-bg-solid-hover: #0a4fb0;
+  --bui-fg-solid: #ffffff;
+  --bui-ring: #0b5fd3;
+}
+
+html,
+body {
+  font-family: 'Schibsted Grotesk Variable', 'Schibsted Grotesk', system-ui,
+    sans-serif;
+  color: #111316;
+  background: #ffffff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tabular numerals only where numbers line up; tnum also widens punctuation. */
+table,
+time {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(11, 95, 211, 0.18);
+  color: #111316;
+}
+
+mark {
+  background: rgba(11, 95, 211, 0.14);
+  color: inherit;
+  border-radius: 2px;
+}
+
+input,
+textarea {
+  caret-color: #0b5fd3;
+}
+
+a {
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid #0b5fd3;
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-color: #c9cdd2 transparent;
+  scrollbar-width: thin;
+}
+
+code,
+pre,
+kbd {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* Pages render inside the area under the top bar, not the whole viewport. */
+[data-backstage-core-page] {
+  height: 100%;
+}
+
+/* Entity pages have no plugin header bar, so the stock entity header needs its own top gap. */
+main > .bui-Container:first-child {
+  padding-top: 20px;
+}

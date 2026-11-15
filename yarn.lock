@@ -3667,6 +3667,20 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fontsource-variable/schibsted-grotesk@npm:^5.3.0":
+  version: 5.3.0
+  resolution: "@fontsource-variable/schibsted-grotesk@npm:5.3.0"
+  checksum: 10c0/beb5c2df4db502be877b25becba56e0538adef633c5c9fc6890913fe514116a858eeb0e3695228f92a9cfcff8ac08ede652d74b636d6ad2e73b9553088d8c069
+  languageName: node
+  linkType: hard
+
+"@fontsource/jetbrains-mono@npm:^5.3.0":
+  version: 5.3.0
+  resolution: "@fontsource/jetbrains-mono@npm:5.3.0"
+  checksum: 10c0/1351b2350e893f5da39559ed90ff0e5e60bcc876b1f40531ad081ad4bf2f3cda3fa9e8940364aef5a7430ae3140685c9cd4819c36d8ad62bcd3fa37e3cc66b1d
+  languageName: node
+  linkType: hard
+
 "@google-cloud/firestore@npm:^7.0.0":
   version: 7.11.6
   resolution: "@google-cloud/firestore@npm:7.11.6"
@@ -8373,12 +8387,14 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "app@workspace:packages/app"
   dependencies:
+    "@backstage/catalog-model": "npm:^1.10.2"
     "@backstage/cli": "npm:^0.36.7"
     "@backstage/core-components": "npm:^0.18.15"
     "@backstage/core-plugin-api": "npm:^1.12.11"
     "@backstage/frontend-defaults": "npm:^0.5.7"
     "@backstage/frontend-plugin-api": "npm:^0.18.2"
     "@backstage/integration-react": "npm:^1.2.23"
+    "@backstage/plugin-app": "npm:^0.5.4"
     "@backstage/plugin-app-module-user-settings": "npm:^0.1.3"
     "@backstage/plugin-app-react": "npm:^0.2.8"
     "@backstage/plugin-auth": "npm:^0.1.13"
@@ -8392,7 +8408,10 @@ __metadata:
     "@backstage/plugin-search": "npm:^1.7.9"
     "@backstage/plugin-signals": "npm:^0.0.36"
     "@backstage/plugin-user-settings": "npm:^0.9.8"
+    "@backstage/theme": "npm:^0.7.3"
     "@backstage/ui": "npm:^0.19.0"
+    "@fontsource-variable/schibsted-grotesk": "npm:^5.3.0"
+    "@fontsource/jetbrains-mono": "npm:^5.3.0"
     "@internal/plugin-vm-status": "workspace:^"
     "@material-ui/core": "npm:^4.12.2"
     "@material-ui/icons": "npm:^4.9.1"
