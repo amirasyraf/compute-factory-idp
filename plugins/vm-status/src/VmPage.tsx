@@ -11,6 +11,7 @@ import type {
 import { makeStyles } from '@material-ui/core';
 import { useLocation } from 'react-router-dom';
 import { getVmConfiguration } from './vmSpec';
+import { useVmSizes, vmSizeText } from './vmSizes';
 import { vmColors, vmState, vmStateColor } from './pipeline';
 
 const rule = '#E3E5E8';
@@ -102,8 +103,10 @@ export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
   const classes = useStyles();
   const { entity } = useAsyncEntity();
   const { pathname } = useLocation();
+  const sizes = useVmSizes();
   if (!entity) return <header className={classes.header} />;
   const desired = getVmConfiguration(entity.spec);
+  const sizeText = vmSizeText(entity, desired.size, sizes);
   const annotations = entity.metadata.annotations ?? {};
   // view-url when the integration set it, else the GitHub file the entity came from.
   const location = annotations['backstage.io/managed-by-origin-location'] ?? '';
@@ -122,7 +125,7 @@ export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
         <span
           className={classes.bullet}
           style={{ background: vmStateColor(state) }}
-          title={`Size ${desired.size}`}
+          title={sizeText}
         >
           {desired.size === '—' ? '?' : desired.size.slice(0, 1)}
         </span>
@@ -139,7 +142,7 @@ export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
         </li>
         <li>
           {desired.os === 'ubuntu' ? 'Ubuntu' : desired.os} on{' '}
-          {desired.platform.toUpperCase()} · size {desired.size}
+          {desired.platform.toUpperCase()} · {sizeText}
         </li>
         {entity.spec?.lifecycle && (
           <li>

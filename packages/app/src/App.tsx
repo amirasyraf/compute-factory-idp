@@ -10,6 +10,7 @@ import {
 import { scmIntegrationsApiRef } from '@backstage/integration-react';
 import scaffolderPlugin from '@backstage/plugin-scaffolder/alpha';
 import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
+import { FormFieldBlueprint } from '@backstage/plugin-scaffolder-react/alpha';
 import { PollingScaffolderClient } from './taskEventPolling';
 import { WorkflowTasks } from './WorkflowTasks';
 import { SignInPageBlueprint } from '@backstage/plugin-app-react';
@@ -37,9 +38,16 @@ const clientMonitor = AppRootElementBlueprint.make({
   params: { element: <ClientMonitor /> },
 });
 
-// Override only the task sub-page, preserving all default fields and task UI.
+// Scaffolder customisations; default fields, task UI, logs and controls are preserved.
 const scaffolder = scaffolderPlugin.withOverrides({
   extensions: [
+    // Size field with instance types and live AWS specs (platform template `ui:field`).
+    FormFieldBlueprint.make({
+      name: 'vm-size-picker',
+      params: {
+        field: () => import('./VmSizePicker').then(m => m.VmSizePicker),
+      },
+    }),
     // Long-poll task events instead of SSE (see taskEventPolling.ts, incl. how to revert).
     scaffolderPlugin.getExtension('api:scaffolder').override({
       params: defineParams =>

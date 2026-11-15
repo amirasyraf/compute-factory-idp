@@ -63,6 +63,14 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
   reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
   `App.tsx` and this file.
+- **VM sizes** (`plugins/cf-backend/src/vmSizes.ts`, `packages/app/src/VmSizePicker.tsx`,
+  `plugins/vm-status/src/vmSizes.ts`): `GET /api/vm-sizes/sizes` (signed-in users) returns the platform's
+  `terraform/platforms/aws/sizes.json` (read from GitHub `main`, cached 5 minutes, last good copy kept
+  during outages) with vCPU, memory, architecture and network from `ec2:DescribeInstanceTypes` (cached
+  1 hour; needs the IDP host role's read-only permission). Without AWS access the response carries an
+  `error` and types without specs. The platform template's `ui:field: VmSizePicker` shows each option as
+  "S — t3.small · 2 vCPU · 2 GiB · x86_64"; the submitted value stays `S`/`M`/`L`. The home row, VM header
+  and VM card show the launched type from `cf/instance-type`, else the type the size maps to now.
 - `packages/app/src/ClientMonitor.tsx` (app-root element) and `clientLog.ts`:
   - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
     bundle. Every 60 seconds and on tab focus, the tab fetches `index.html` (served `no-store`) and

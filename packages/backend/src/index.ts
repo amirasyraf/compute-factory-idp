@@ -6,6 +6,7 @@ import {
   mockRestPlugin,
   demoModePlugin,
   clientLogPlugin,
+  vmSizesPlugin,
 } from '@internal/plugin-cf-backend';
 
 const backend = createBackend();
@@ -25,6 +26,7 @@ backend.add(sshModule);
 backend.add(mockRestPlugin);
 backend.add(demoModePlugin);
 backend.add(clientLogPlugin);
+backend.add(vmSizesPlugin);
 backend.add(import('@backstage/plugin-search-backend'));
 backend.add(import('@backstage/plugin-search-backend-module-pg'));
 backend.add(import('@backstage/plugin-search-backend-module-catalog'));

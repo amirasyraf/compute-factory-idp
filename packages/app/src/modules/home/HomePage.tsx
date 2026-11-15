@@ -11,6 +11,8 @@ import {
   VmState,
   getPipelineProcesses,
   getVmConfiguration,
+  useVmSizes,
+  vmSizeText,
   vmColors,
   vmState,
   vmStateColor,
@@ -301,6 +303,7 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
   const status = annotations['cf/status'];
   const processes = getPipelineProcesses(annotations);
   const desired = getVmConfiguration(entity.spec);
+  const sizeText = vmSizeText(entity, desired.size, useVmSizes());
   const color = vmStateColor(state);
   const ip = annotations['cf/public-ip'];
   const user = annotations['cf/ssh-user'] || 'ubuntu';
@@ -340,7 +343,7 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
           <span
             className={classes.bullet}
             style={{ background: color }}
-            title={`Size ${desired.size}`}
+            title={sizeText}
           >
             {desired.size === '—' ? '?' : desired.size.slice(0, 1)}
           </span>
@@ -382,7 +385,7 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
           </div>
         ) : (
           <div>
-            {os} · size {desired.size}
+            {os} · {sizeText}
           </div>
         )}
         {active && (state === 'building' || state === 'failed') && (

@@ -18,6 +18,14 @@ export {
   type VmState,
 } from './pipeline';
 export { getVmConfiguration } from './vmSpec';
+export {
+  describeSpecs,
+  useVmSizes,
+  vmSizeText,
+  type InstanceSpecs,
+  type VmSize,
+  type VmSizes,
+} from './vmSizes';
 
 const isVm = (entity: Entity) =>
   entity.kind.toLowerCase() === 'resource' && entity.spec?.type === 'vm';

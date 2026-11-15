@@ -19,7 +19,7 @@ const vm = {
     name: 'spec-vm',
     namespace: 'default',
     uid: 'spec-vm-fixture',
-    annotations: { 'cf/status': 'ready' },
+    annotations: { 'cf/status': 'ready', 'cf/instance-type': 't3.medium' },
   },
   spec: {
     type: 'vm',
@@ -188,6 +188,48 @@ try {
       json = resources
         ? { items: [vm], totalItems: 1, pageInfo: {} }
         : { items: [], totalItems: 0, pageInfo: {} };
+    } else if (path.endsWith('/vm-sizes/sizes')) {
+      const specs = memoryMiB => ({
+        vcpus: 2,
+        memoryMiB,
+        architectures: ['x86_64'],
+        network: 'Up to 5 Gigabit',
+        burstable: true,
+      });
+      json = {
+        sizes: [
+          { size: 'S', instanceType: 't3.small', specs: specs(2048) },
+          { size: 'M', instanceType: 't3.medium', specs: specs(4096) },
+          { size: 'L', instanceType: 't3.large', specs: specs(8192) },
+        ],
+        error: null,
+      };
+    } else if (path.endsWith('/vm-request/parameter-schema')) {
+      json = {
+        title: 'Request a VM',
+        steps: [
+          {
+            title: 'Compute',
+            schema: {
+              type: 'object',
+              properties: {
+                compute: {
+                  type: 'object',
+                  properties: {
+                    size: {
+                      title: 'Size',
+                      type: 'string',
+                      default: 'S',
+                      enum: ['S', 'M', 'L'],
+                      'ui:field': 'VmSizePicker',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        ],
+      };
     } else if (path.endsWith('/entities/by-refs')) {
       json = { items: [template] };
     } else if (path.endsWith('/ancestry')) {
@@ -290,6 +332,9 @@ try {
   await expect(page.getByText('aws / ubuntu', { exact: true })).toBeVisible();
   await expect(page.getByText('git, nginx', { exact: true })).toBeVisible();
   await expect(
+    page.getByText('M · t3.medium · 2 vCPU · 4 GiB · x86_64', { exact: true }),
+  ).toBeVisible();
+  await expect(
     page.getByText('costCenter: CC-1234', { exact: true }),
   ).toBeVisible();
   await expect(
@@ -306,6 +351,9 @@ try {
   const row = page.getByRole('row', { name: /spec-vm/ });
   await expect(row.getByLabel('Pipeline stages')).toBeVisible();
   await expect(
+    row.locator('[title="M · t3.medium · 2 vCPU · 4 GiB · x86_64"]'),
+  ).toHaveCount(1);
+  await expect(
     row.getByRole('link', { name: 'Get SSH certificate' }),
   ).toBeVisible();
   await page.getByRole('tab', { name: /Failed/ }).click();
@@ -314,6 +362,18 @@ try {
   console.log(
     'HOME UI PASS: top bar, team VM table with pipeline line, next action and empty filter state (fixture APIs)',
   );
+  await page.goto(`${base}/create/templates/default/vm-request`);
+  await expect(
+    page.getByText('— t3.large · 2 vCPU · 8 GiB · x86_64'),
+  ).toBeVisible();
+  await expect(page.getByRole('radio', { name: /^S — t3\.small/ })).toBeChecked();
+  await page.getByRole('radio', { name: /^L — t3\.large/ }).check();
+  await expect(page.getByRole('radio', { name: /^L — t3\.large/ })).toBeChecked();
+  assertNoErrors(errors);
+  console.log(
+    'VM SIZE UI PASS: request form lists sizes with instance types and AWS specs; VM card and home row show the launched type (fixture APIs)',
+  );
+  await page.goto(`${base}/`);
   const banner = page.getByText('A new version of Compute Factory is available.');
   const running = await page.evaluate(
     () =>

@@ -5,6 +5,7 @@ import { useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
 import { makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
+import { useVmSizes, vmSizeText } from './vmSizes';
 import {
   PROCESS_ORDER,
   PipelineLine,
@@ -181,6 +182,7 @@ export function VmStatusCard() {
 
   const annotations = entity.metadata.annotations ?? {};
   const desired = getVmConfiguration(entity.spec);
+  const sizes = useVmSizes();
   const overallStatus = annotations['cf/status'] ?? 'unknown';
   const state = vmState(overallStatus);
   const processes = getPipelineProcesses(annotations);
@@ -397,7 +399,7 @@ export function VmStatusCard() {
           </div>
           <div>
             <dt>Size</dt>
-            <dd>{desired.size}</dd>
+            <dd>{vmSizeText(entity, desired.size, sizes)}</dd>
           </div>
           <div>
             <dt>Software</dt>

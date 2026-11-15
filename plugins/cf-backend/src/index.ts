@@ -16,6 +16,7 @@ import { createDemoDispatchAction } from './demo';
 export { mockRestPlugin } from './servicenow';
 export { demoModePlugin } from './demo';
 export { clientLogPlugin } from './clientLog';
+export { vmSizesPlugin } from './vmSizes';
 
 export const passwordAuthModule = createBackendModule({
   pluginId: 'auth',

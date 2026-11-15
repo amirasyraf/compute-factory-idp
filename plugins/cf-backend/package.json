@@ -13,6 +13,7 @@
     "lint": "backstage-cli package lint"
   },
   "dependencies": {
+    "@aws-sdk/client-ec2": "^3.0.0",
     "@aws-sdk/client-secrets-manager": "^3.0.0",
     "@backstage/backend-plugin-api": "^1.0.0",
     "@backstage/catalog-model": "^1.0.0",
