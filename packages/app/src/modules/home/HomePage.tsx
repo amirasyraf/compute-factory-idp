@@ -18,6 +18,7 @@ import {
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
 import VpnKeyOutlined from '@material-ui/icons/VpnKeyOutlined';
+import { DemoModePanel } from '../../DemoModePanel';
 
 const REQUEST_VM = '/create/templates/default/vm-request';
 const SSH_CERT = '/create/templates/default/ssh-cert';
@@ -551,6 +552,8 @@ export function HomePage() {
           </Link>
         </div>
       </div>
+
+      <DemoModePanel />
 
       <div className={classes.strip} role="tablist" aria-label="Filter VMs">
         {FILTERS.map(f => (

@@ -193,8 +193,8 @@ not a sidebar and is not implemented as an overlay on the page.
 
 Home and Resources fill the available content width with `32px 20px 48px` page
 padding and no maximum-width cap. Their headers wrap,
-aligning titles and actions at the bottom with a 24px gap. Home's count strip
-starts 28px below the header. These are observed measurements, not a new universal
+aligning titles and actions at the bottom with a 24px gap. Home adds a full-width demo-mode control
+panel below the header; the count strip starts 28px below that panel. These are observed measurements, not a new universal
 spacing-token scale. Owned surfaces commonly use 8/12/16/20/24px intervals, but
 also intentional 10/14/28px gaps; do not claim a strict grid for every measurement.
 

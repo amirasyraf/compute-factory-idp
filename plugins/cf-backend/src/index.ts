@@ -11,8 +11,10 @@ import { authProvidersExtensionPoint } from '@backstage/plugin-auth-node';
 import { passwordProviderFactory } from './auth';
 import { createWorkflowWatchAction } from './watch';
 import { createServiceNowRequestAction } from './servicenow';
+import { createDemoDispatchAction } from './demo';
 
 export { mockRestPlugin } from './servicenow';
+export { demoModePlugin } from './demo';
 
 export const passwordAuthModule = createBackendModule({
   pluginId: 'auth',
@@ -53,12 +55,14 @@ export const sshModule = createBackendModule({
         catalog: catalogServiceRef,
         auth: coreServices.auth,
         config: coreServices.rootConfig,
+        discovery: coreServices.discovery,
       },
-      async init({ actions, catalog, auth, config }) {
+      async init({ actions, catalog, auth, config, discovery }) {
         actions.addActions(
           createSshSignAction(catalog, auth),
           createWorkflowWatchAction(),
           createServiceNowRequestAction(auth, config),
+          createDemoDispatchAction(auth, discovery),
         );
       },
     });

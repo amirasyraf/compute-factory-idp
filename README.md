@@ -39,10 +39,13 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
-  `scaffolder`, plus the `mock-rest` plugin (Backstage extension points belong to separate plugin IDs).
+  `scaffolder`, plus the `mock-rest` and `demo-mode` plugins (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
   every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
   `cf:servicenow:create` makes a real HTTP POST to the mock REST receiver before VM workflow dispatch.
+- `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
+  and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
+  access; the roster lives only in `catalog/org.yaml`.
 - `packages/app/src/WorkflowTasks.tsx`: augments the stock Scaffolder task detail page with a
   horizontally scrollable stage view, individual job status/duration and expandable step details.
   It reads versioned snapshots from the existing task-owned event stream, not a browser GitHub token
@@ -170,6 +173,35 @@ is exactly 12 hours; key ID is the catalog username.
 
 ## Local development
 
+### Demo mode
+
+Demo mode defaults **off**. On Home, platform admins can enable/disable it without redeploying.
+Enabling destroys oldest excess VMs, keeping the newest three per requesting account, and gives
+existing ready/failed VMs five minutes from enable time. New VMs get five minutes from first readiness
+(or terminal failure if never ready). Refry does not extend the deadline. A fourth request is refused;
+queued, provisioning, failed and destroying VMs all occupy quota until their inventory is gone.
+Quotas are per original requester, not per team, and include admins.
+
+The backend stores settings, deadlines and dispatch reservations in its existing database and checks
+Git inventory every 15 seconds. It reuses `destroy.yml`/Terraform rather than directly terminating EC2.
+Disabling invalidates queued cleanup; already-started destruction cannot be undone. Re-enabling starts
+fresh timers. IDP/GitHub downtime delays cleanup, and Actions queues/Terraform add time after expiry.
+This is a POC cost-control convenience, not an independent hard termination guarantee.
+
+The deployment enables `computeFactory.demoAutomation: true`. It defaults false elsewhere so local
+development and the existing smoke environment can exercise real controls without launching or deleting
+production VMs. Local requests are refused while automation is disabled. Production is single-instance:
+do not scale the backend horizontally without replacing its admission mutex with distributed locking.
+
+Ambiguous GitHub dispatches retain their reservation/cleanup intent and show an error. The worker
+recovers IDs from the newest 100 matching workflow runs; it does not blindly resend ambiguous requests.
+Known rejected cleanup dispatches and failed cleanup runs are retried after two minutes. If recovery
+cannot find a run, inspect Actions and the control panel before operator repair; do not simply resubmit.
+Repository writers/dispatch-token holders are trusted and can bypass portal admission; do not give
+that access to demo users. The worker still reconciles their inventory against the enabled policy.
+
+### Setup
+
 ```sh
 mise trust
 mise install
@@ -185,7 +217,8 @@ Docker through environment only. It exercises the real Caddy rewrite, backend-to
 HTTP 201 and matching caller/receiver logs, rejected anonymous/catalog-token/user calls, and failed-step
 short-circuiting on HTTP 503, without dispatching GHA. It also runs the existing fixture-API browser
 checks against this local frontend. No production configuration or AWS credentials are needed.
-These checks do not verify live VM provisioning or a real ServiceNow service.
+These checks verify admin/non-admin demo controls against the real local backend/database with
+automation disabled. They do not verify live VM expiry/provisioning or a real ServiceNow service.
 
 ### Mock ServiceNow REST demo
 
@@ -200,7 +233,8 @@ record lookup, persistence or provisioning-status update is implemented. Refry/d
 dispatch do not call this demo endpoint.
 
 The endpoint accepts only Backstage service credentials from `plugin:scaffolder`; it is not an
-anonymous public webhook. The existing catalog-only external token stays catalog-only. No new shared
+anonymous public webhook. The workflow token is restricted to catalog and the read-only demo cleanup
+check, and still cannot call the mock receiver. No new shared
 secret is needed. The action uses a backend-configured URL constrained to this IDP origin and exact
 mock path, disallows redirects, and aborts after ten seconds or task cancellation. A non-201 or malformed
 response fails the task before GHA starts. It supports Template Editor dry-runs because it creates no

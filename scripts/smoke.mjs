@@ -10,7 +10,9 @@ import { hashPassword } from '../plugins/cf-backend/src/passwords/index.js';
 const run = promisify(execFile);
 const password = randomUUID();
 const users = Buffer.from(
-  `amirasyraf:${await hashPassword(password)}`,
+  `amirasyraf:${await hashPassword(password)}\nbob:${await hashPassword(
+    password,
+  )}`,
 ).toString('base64');
 
 const configPath = resolve('app-config.smoke.local.yaml');
@@ -225,6 +227,76 @@ try {
     Authorization: `Bearer ${identity.token}`,
     'Content-Type': 'application/json',
   };
+  // Real backend + database + signed identities, not mocked control APIs.
+  const demoBase = `${proxyUrl}/api/demo-mode`;
+  const demo = await fetch(`${demoBase}/state`, { headers: userHeaders });
+  const initialDemo = await demo.json();
+  if (
+    !demo.ok ||
+    !initialDemo.isAdmin ||
+    initialDemo.enabled ||
+    initialDemo.automationAvailable
+  )
+    throw new Error(
+      'Expected admin, default-off demo mode with local automation disabled',
+    );
+  const normalLogin = await fetch(`${proxyUrl}/api/auth/password/refresh`, {
+    method: 'POST',
+    headers: {
+      Origin: proxyUrl,
+      'X-Requested-With': 'XMLHttpRequest',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ username: 'bob', password }),
+  });
+  if (!normalLogin.ok) throw new Error('Normal-user smoke login failed');
+  const normal = (await normalLogin.json()).backstageIdentity;
+  const normalHeaders = {
+    Authorization: `Bearer ${normal.token}`,
+    'Content-Type': 'application/json',
+  };
+  const forbiddenToggle = await fetch(`${demoBase}/settings`, {
+    method: 'POST',
+    headers: normalHeaders,
+    body: JSON.stringify({ enabled: true, generation: initialDemo.generation }),
+  });
+  if (forbiddenToggle.status !== 403)
+    throw new Error('Normal user can change demo mode');
+  const anonymousDemo = await fetch(`${demoBase}/state`);
+  if (anonymousDemo.status !== 401)
+    throw new Error('Anonymous demo state allowed');
+  let generation = initialDemo.generation;
+  for (const enabled of [true, false, true, false]) {
+    const saved = await fetch(`${demoBase}/settings`, {
+      method: 'POST',
+      headers: userHeaders,
+      body: JSON.stringify({ enabled, generation }),
+    });
+    if (!saved.ok) throw new Error(`Admin demo toggle HTTP ${saved.status}`);
+    const current = await (
+      await fetch(`${demoBase}/state`, { headers: userHeaders })
+    ).json();
+    if (current.enabled !== enabled || current.generation === generation)
+      throw new Error('Demo settings not persisted/versioned');
+    generation = current.generation;
+  }
+  const staleToggle = await fetch(`${demoBase}/settings`, {
+    method: 'POST',
+    headers: userHeaders,
+    body: JSON.stringify({ enabled: true, generation: initialDemo.generation }),
+  });
+  if (staleToggle.status !== 409)
+    throw new Error('Stale demo settings accepted');
+  const disabledAutomation = await fetch(`${demoBase}/requests`, {
+    method: 'POST',
+    headers: userHeaders,
+    body: '{}',
+  });
+  if (disabledAutomation.status !== 503)
+    throw new Error('Local smoke can launch real VMs');
+  console.log(
+    'DEMO CONTROLS PASS: real admin toggles persisted, normal user denied, anonymous denied, stale generation rejected, local automation disabled',
+  );
   const userAccess = await fetch(mockUrl, {
     method: 'POST',
     headers: userHeaders,

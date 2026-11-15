@@ -1,6 +1,7 @@
 app:
   baseUrl: https://${IDP_DOMAIN}
 computeFactory:
+  demoAutomation: true
   mockServiceNowUrl: https://${IDP_DOMAIN}/mock-rest/servicenow
 backend:
   baseUrl: https://${IDP_DOMAIN}
@@ -23,6 +24,7 @@ backend:
           subject: compute-factory-workflows
         accessRestrictions:
           - plugin: catalog
+          - plugin: demo-mode
 auth:
   environment: production
 catalog:

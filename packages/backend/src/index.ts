@@ -4,6 +4,7 @@ import {
   sshModule,
   passwordAuthModule,
   mockRestPlugin,
+  demoModePlugin,
 } from '@internal/plugin-cf-backend';
 
 const backend = createBackend();
@@ -21,6 +22,7 @@ backend.add(import('@backstage/plugin-permission-backend'));
 backend.add(permissionModule);
 backend.add(sshModule);
 backend.add(mockRestPlugin);
+backend.add(demoModePlugin);
 backend.add(import('@backstage/plugin-search-backend'));
 backend.add(import('@backstage/plugin-search-backend-module-pg'));
 backend.add(import('@backstage/plugin-search-backend-module-catalog'));
