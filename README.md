@@ -71,15 +71,15 @@ not drawn above the list or any entity page; entity pages keep their own headers
 non-Resource catalog filter URLs. Members of `group:default/platform-admins` retain the full kind
 picker and explicit kind links. This is a catalog-list UI restriction, not an API permission change:
 User/Group entities remain readable for sign-in, ownership and template team pickers. Direct entity
-pages continue to use existing catalog permissions. `amirasyraf` remains a normal alpha-team user.
+pages continue to use existing catalog permissions.
 
 ## Users and teams
 
-Edit `catalog/org.yaml`. User names must match the password file exactly. Add groups
-with `kind: Group`, `spec.type: team`, `children: []`; put their names in each
-user's `spec.memberOf`. `amirasyraf` initially belongs **only** to `alpha`.
-`bob` belongs only to `bravo`. `platform-admins` is deliberately empty: adding
-membership explicitly grants global access. The password provider calls
+`catalog/org.yaml` is the sole roster of users, teams and memberships; do not repeat the roster
+in documentation. User names must match the password file exactly. Add groups with `kind: Group`,
+`spec.type: team`, `children: []`; put their names in each user's `spec.memberOf`. Internal team IDs
+are lowercase for consistent owner refs and SSH principals; display names may retain other casing.
+Membership in the reserved `platform-admins` group explicitly grants global access. The password provider calls
 `signInWithCatalogUser` with the username; unknown catalog users cannot sign in.
 The default ownership resolver supplies the user plus their direct groups, so
 the existing policy and SSH action are unchanged. GitHub is an integration only,
