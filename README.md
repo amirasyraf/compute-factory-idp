@@ -9,7 +9,9 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   It renders every workflow process from catalog annotations, desired compute/configuration/billing/tags
   from the entity's structured `spec` (not duplicated annotations), polls every 10 seconds until ready/failed,
   and links to the full Actions run, certificate, destroy and refry templates. It never calls the GitHub
-  run API with a shared token.
+  run API with a shared token. While `cf/status` is `destroying` it offers only the destroy run link
+  (the destroy workflow records no per-step progress); when a refresh finds the entity removed from the
+  catalog it shows "Destroyed" with the run link and a link back to Resources, and stops polling.
   Desired software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
   Billing metadata is self-reported, not organizational billing authorization. Custom spec validation is
   performed by the platform workflow; malformed custom fields are rendered defensively by the card.

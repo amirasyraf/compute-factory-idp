@@ -352,6 +352,10 @@ note, Access, all nine process rows (including failure handling), and Desired
 configuration. SSH certificate, optional GitHub run, prefilled refry and destroy
 links remain reachable. Ready promotes certificate access; failed promotes the
 run link. Destroy is a red-text outlined action here, not home's filled red style.
+While destroying, only the destroy run link remains (promoted) and the `ssh`
+command is hidden. Once a refresh finds the entity gone, the card becomes a
+terminal "Destroyed" notice with the run link and Back to Resources; it is not
+claimed until the catalog no longer returns the entity.
 
 ### Stock and owned boundaries; known limitations
 

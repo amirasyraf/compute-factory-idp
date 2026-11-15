@@ -170,9 +170,12 @@ export function VmStatusCard() {
   const [entity, setEntity] = useState(initial);
   const [error, setError] = useState<string>();
   const [lastRefreshed, setLastRefreshed] = useState(() => new Date());
+  // Set when a refresh finds the entity gone: destroy deletes it last.
+  const [removed, setRemoved] = useState(false);
 
   useEffect(() => {
     setEntity(initial);
+    setRemoved(false);
     setLastRefreshed(new Date());
   }, [initial]);
 
@@ -194,14 +197,18 @@ export function VmStatusCard() {
     JSON.stringify({ vm: stringifyEntityRef(entity) }),
   );
   const runUrl = annotations['cf/run-url'];
+  const destroying = state === 'destroying';
   let currentActivity = 'Waiting for pipeline updates';
-  if (failed) currentActivity = `${failed.label} failed`;
+  if (destroying)
+    currentActivity =
+      'The destroy workflow is removing this VM. This page updates when it leaves the catalog.';
+  else if (failed) currentActivity = `${failed.label} failed`;
   else if (active) currentActivity = active.label;
   else if (overallStatus === 'ready')
     currentActivity = 'All pipeline processes completed';
 
   useEffect(() => {
-    if (overallStatus === 'ready' || overallStatus === 'failed')
+    if (removed || overallStatus === 'ready' || overallStatus === 'failed')
       return undefined;
     let disposed = false;
     let fetching = false;
@@ -210,11 +217,11 @@ export function VmStatusCard() {
       fetching = true;
       try {
         const updated = await api.getEntityByRef(stringifyEntityRef(entity));
-        if (!disposed && updated) {
-          setEntity(updated);
-          setLastRefreshed(new Date());
-          setError(undefined);
-        }
+        if (disposed) return;
+        if (updated) setEntity(updated);
+        else setRemoved(true);
+        setLastRefreshed(new Date());
+        setError(undefined);
       } catch {
         if (!disposed) setError('Live refresh failed; retrying.');
       } finally {
@@ -225,7 +232,43 @@ export function VmStatusCard() {
       disposed = true;
       window.clearInterval(timer);
     };
-  }, [api, entity, overallStatus]);
+  }, [api, entity, overallStatus, removed]);
+
+  let refreshNote =
+    'Refreshes about every 10 seconds while the pipeline is active.';
+  if (state === 'ready' || state === 'failed') refreshNote = '';
+  else if (destroying)
+    refreshNote = 'Checks about every 10 seconds until the VM is removed.';
+
+  if (removed) {
+    return (
+      <InfoCard title="VM pipeline">
+        <div className={classes.state}>Destroyed</div>
+        <div className={classes.activity}>
+          This VM has been removed from the catalog. Checked{' '}
+          {lastRefreshed.toLocaleTimeString()}.
+        </div>
+        <div className={classes.actions}>
+          {runUrl && (
+            <a
+              href={runUrl}
+              target="_blank"
+              rel="noreferrer"
+              className={classes.action}
+            >
+              View destroy run on GitHub
+            </a>
+          )}
+          <Link
+            to="/catalog"
+            className={`${classes.action} ${classes.primary}`}
+          >
+            Back to Resources
+          </Link>
+        </div>
+      </InfoCard>
+    );
+  }
 
   return (
     <InfoCard title="VM pipeline">
@@ -249,9 +292,7 @@ export function VmStatusCard() {
         />
       </div>
       <div className={classes.note}>
-        {state === 'ready' || state === 'failed'
-          ? `Last checked ${lastRefreshed.toLocaleTimeString()}.`
-          : `Refreshes about every 10 seconds while the pipeline is active. Last checked ${lastRefreshed.toLocaleTimeString()}.`}
+        {refreshNote} Last checked {lastRefreshed.toLocaleTimeString()}.
       </div>
       {error && <div className={classes.error}>{error}</div>}
 
@@ -267,44 +308,50 @@ export function VmStatusCard() {
             <dd>{user}</dd>
           </div>
         </dl>
-        {ip && (
+        {ip && !destroying && (
           <code className={classes.command}>
             ssh {user}@{ip}
           </code>
         )}
         <div className={classes.actions}>
-          <Link
-            to="/create/templates/default/ssh-cert"
-            className={`${classes.action} ${
-              state === 'ready' ? classes.primary : ''
-            }`}
-          >
-            Get SSH certificate
-          </Link>
+          {!destroying && (
+            <Link
+              to="/create/templates/default/ssh-cert"
+              className={`${classes.action} ${
+                state === 'ready' ? classes.primary : ''
+              }`}
+            >
+              Get SSH certificate
+            </Link>
+          )}
           {runUrl && (
             <a
               href={runUrl}
               target="_blank"
               rel="noreferrer"
               className={`${classes.action} ${
-                state === 'failed' ? classes.primary : ''
+                state === 'failed' || destroying ? classes.primary : ''
               }`}
             >
-              View run on GitHub
+              {destroying ? 'View destroy run on GitHub' : 'View run on GitHub'}
             </a>
           )}
-          <Link
-            to={`/create/templates/default/vm-refry?formData=${prefill}`}
-            className={classes.action}
-          >
-            Refry
-          </Link>
-          <Link
-            to={`/create/templates/default/vm-destroy?formData=${prefill}`}
-            className={`${classes.action} ${classes.danger}`}
-          >
-            Destroy VM
-          </Link>
+          {!destroying && (
+            <>
+              <Link
+                to={`/create/templates/default/vm-refry?formData=${prefill}`}
+                className={classes.action}
+              >
+                Refry
+              </Link>
+              <Link
+                to={`/create/templates/default/vm-destroy?formData=${prefill}`}
+                className={`${classes.action} ${classes.danger}`}
+              >
+                Destroy VM
+              </Link>
+            </>
+          )}
         </div>
       </div>
 
