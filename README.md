@@ -45,6 +45,12 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   `scaffolder`, plus the `mock-rest` and `demo-mode` plugins (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
   every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
+  It retries rate limits, GitHub 5xx and network errors (a 404 for 2 minutes) instead of failing the
+  task while the workflow keeps running; GitHub reads (watcher and demo reconcile) use ETag conditional
+  requests so unchanged polls do not consume the token's 5,000/hour rate limit. `cf:vm:dispatch`
+  retries timeouts and server errors with the same task ID; the endpoint is idempotent per task, so a
+  retry returns the existing run rather than requesting a second VM. Without demo mode, a failed
+  inventory scan no longer blocks requests; with demo mode it fails closed (quota cannot be checked).
   `cf:servicenow:create` makes a real HTTP POST to the mock REST receiver before VM workflow dispatch.
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
@@ -254,7 +260,9 @@ do not scale the backend horizontally without replacing its admission mutex with
 
 Ambiguous GitHub dispatches retain their reservation/cleanup intent and show an error. The worker
 recovers IDs from the newest 100 matching workflow runs; it does not blindly resend ambiguous requests.
-Known rejected cleanup dispatches and failed cleanup runs are retried after two minutes. If recovery
+Known rejected cleanup dispatches and failed cleanup runs are retried after two minutes, at most three
+attempts per VM per demo-mode generation; then the VM shows "Cleanup stopped" and needs an operator
+(fix the cause, then toggle demo mode off and on to start a new generation). If recovery
 cannot find a run, inspect Actions and the control panel before operator repair; do not simply resubmit.
 Repository writers/dispatch-token holders are trusted and can bypass portal admission; do not give
 that access to demo users. The worker still reconciles their inventory against the enabled policy.

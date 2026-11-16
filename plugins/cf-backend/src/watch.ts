@@ -86,28 +86,82 @@ function runUrl(runId: number): string {
   return `${apiBase}/repos/${repository}/actions/runs/${runId}`;
 }
 
-async function getJson<T>(url: string, token: string): Promise<T> {
+type GitHubError = Error & { status?: number; retryAfterMs?: number };
+type Cache = Map<string, { etag: string; body: unknown }>;
+
+// Conditional requests: a 304 reply does not count against GitHub's hourly rate limit.
+async function getJson<T>(
+  url: string,
+  token: string,
+  cache: Cache,
+  signal?: AbortSignal,
+): Promise<T> {
+  const cached = cache.get(url);
+  const timeout = AbortSignal.timeout(20000);
   const response = await fetch(url, {
     headers: {
       Accept: 'application/vnd.github+json',
       Authorization: `Bearer ${token}`,
       'X-GitHub-Api-Version': '2022-11-28',
+      ...(cached ? { 'If-None-Match': cached.etag } : {}),
     },
+    signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
   });
+  if (response.status === 304 && cached) return cached.body as T;
   if (!response.ok) {
     // GitHub's message and request ID make rate limits and token problems obvious.
     const body = (await response.json().catch(() => ({}))) as {
       message?: string;
     };
-    const error = new Error(
+    const error: GitHubError = new Error(
       `GitHub API returned ${response.status} for workflow status: ${
         body.message ?? 'no message'
       } (request ${response.headers.get('x-github-request-id') ?? 'unknown'})`,
-    ) as Error & { status: number };
+    );
     error.status = response.status;
+    const retryAfter = Number(response.headers.get('retry-after'));
+    const reset = Number(response.headers.get('x-ratelimit-reset'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0)
+      error.retryAfterMs = retryAfter * 1000;
+    else if (
+      response.headers.get('x-ratelimit-remaining') === '0' &&
+      Number.isFinite(reset)
+    )
+      error.retryAfterMs = Math.max(0, reset * 1000 - Date.now()) + 1000;
+    if (
+      response.status === 403 &&
+      error.retryAfterMs === undefined &&
+      /rate limit/i.test(body.message ?? '')
+    )
+      error.retryAfterMs = 60000;
     throw error;
   }
-  return (await response.json()) as T;
+  const body = (await response.json()) as T;
+  const etag = response.headers.get('etag');
+  if (etag) cache.set(url, { etag, body });
+  return body;
+}
+
+// Rate limits, GitHub 5xx and network/timeouts are transient; the VM keeps building meanwhile.
+function transient(error: GitHubError): boolean {
+  if (error.status === undefined) return true;
+  return (
+    error.status >= 500 ||
+    error.status === 429 ||
+    (error.status === 403 && error.retryAfterMs !== undefined)
+  );
+}
+
+// A skipped reusable-workflow job is reported under its caller ID ("fry-software"), not
+// "fry-software / fry". Map it to the expected name so the stage is not shown twice.
+function normalizeJobs(operation: Operation, jobs: WorkflowJob[]) {
+  return jobs.map(job => {
+    if (expectedJobs[operation].includes(job.name)) return job;
+    const name = expectedJobs[operation].find(item =>
+      item.startsWith(`${job.name} / `),
+    );
+    return name ? { ...job, name } : job;
+  });
 }
 
 function jobState(job: WorkflowJob): string {
@@ -200,6 +254,7 @@ export function createWorkflowWatchAction(
 ) {
   const intervalMs = options.intervalMs ?? 10000;
   const maxWaitMs = options.maxWaitMs ?? 30 * 60 * 1000;
+  const notFoundGraceMs = 2 * 60 * 1000;
 
   return createTemplateAction({
     id: 'cf:watch-workflow',
@@ -222,31 +277,64 @@ export function createWorkflowWatchAction(
       const operation = ctx.input.operation as Operation;
       const runId = ctx.input.workflowRunId;
       const started = Date.now();
+      const cache: Cache = new Map();
       let lastSignature = '';
       let checkedRunPath = false;
+      let notFoundSince: number | null = null;
+      let failures = 0;
 
       while (Date.now() - started <= maxWaitMs) {
         if (ctx.signal?.aborted)
           throw new Error('Workflow watch was cancelled');
 
-        // A just-dispatched run (and its jobs) can briefly 404 on GitHub's API.
         let run: WorkflowRun;
         let jobs: WorkflowJob[];
         try {
-          run = await getJson<WorkflowRun>(runUrl(runId), token);
-          jobs =
+          run = await getJson<WorkflowRun>(
+            runUrl(runId),
+            token,
+            cache,
+            ctx.signal,
+          );
+          jobs = normalizeJobs(
+            operation,
             (
               await getJson<{ jobs: WorkflowJob[] }>(
                 `${runUrl(runId)}/jobs?per_page=100`,
                 token,
+                cache,
+                ctx.signal,
               )
-            ).jobs ?? [];
-        } catch (error) {
-          if ((error as { status?: number }).status !== 404) throw error;
-          ctx.logger.info(
-            `Waiting for GitHub workflow run ${runId} to become available...`,
+            ).jobs ?? [],
           );
-          await delay(intervalMs, ctx.signal);
+          notFoundSince = null;
+          failures = 0;
+        } catch (error) {
+          if (ctx.signal?.aborted)
+            throw new Error('Workflow watch was cancelled');
+          const failure = error as GitHubError;
+          if (failure.status === 404) {
+            // A just-dispatched run (and its jobs) can briefly 404; a lasting 404 is real.
+            notFoundSince ??= Date.now();
+            if (Date.now() - notFoundSince > notFoundGraceMs) throw error;
+            ctx.logger.info(
+              `Waiting for GitHub workflow run ${runId} to become available...`,
+            );
+            await delay(intervalMs, ctx.signal);
+            continue;
+          }
+          if (!transient(failure)) throw error;
+          failures++;
+          const wait = Math.min(
+            failure.retryAfterMs ?? intervalMs * 2 ** Math.min(failures - 1, 3),
+            Math.max(intervalMs, maxWaitMs - (Date.now() - started)),
+          );
+          ctx.logger.warn(
+            `${failure.message}; retrying in ${Math.round(
+              wait / 1000,
+            )}s. The workflow keeps running meanwhile.`,
+          );
+          await delay(wait, ctx.signal);
           continue;
         }
 

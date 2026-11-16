@@ -14,6 +14,7 @@ const repository = 'amirasyraf/compute-factory-platform';
 const api = `https://api.github.com/repos/${repository}`;
 const limit = 3;
 const lifetime = 5 * 60 * 1000;
+const maxCleanupAttempts = 3;
 // While demo mode is on, Advanced instance-type requests are limited to these (cost control).
 // Size letters are allowed: sizes.json maps XS-L to exactly these types.
 export const demoInstanceTypes = [
@@ -45,6 +46,7 @@ type Vm = {
   cleanup_reason: string | null;
   cleanup_run_id: string | null;
   cleanup_attempt_at: number | null;
+  cleanup_attempts: number;
   error: string | null;
 };
 type Run = {
@@ -77,9 +79,14 @@ const expiresAt = (vm: Vm, mode: Mode) => {
     : null;
 };
 
+// Conditional GETs: the 15-second reconcile mostly gets 304s, which do not count
+// against GitHub's hourly rate limit. Bounded; cleared when it grows too large.
+const etags = new Map<string, { etag: string; body: unknown }>();
+
 async function github<T>(path: string, body?: unknown): Promise<T> {
   const token = process.env.GITHUB_TOKEN;
   if (!token) throw new Error('GITHUB_TOKEN is required for demo controls');
+  const cached = body === undefined ? etags.get(path) : undefined;
   const response = await fetch(`${api}${path}`, {
     method: body === undefined ? 'GET' : 'POST',
     headers: {
@@ -87,11 +94,13 @@ async function github<T>(path: string, body?: unknown): Promise<T> {
       Accept: 'application/vnd.github+json',
       'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28',
+      ...(cached ? { 'If-None-Match': cached.etag } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(15000),
     redirect: 'error',
   });
+  if (response.status === 304 && cached) return cached.body as T;
   if (!response.ok) {
     const failure = (await response.json().catch(() => ({}))) as {
       message?: string;
@@ -107,7 +116,13 @@ async function github<T>(path: string, body?: unknown): Promise<T> {
     throw new Error(
       'GitHub did not return workflow run details; dispatch outcome uncertain',
     );
-  return response.json();
+  const result = (await response.json()) as T;
+  const etag = response.headers.get('etag');
+  if (body === undefined && etag) {
+    if (etags.size > 2000) etags.clear();
+    etags.set(path, { etag, body: result });
+  }
+  return result;
 }
 
 // Bounded concurrency for inventory blobs and run lookups, not one request per row in series.
@@ -161,6 +176,11 @@ async function initialize(db: Database) {
       table.string('cleanup_run_id').nullable();
       table.bigInteger('cleanup_attempt_at').nullable();
       table.text('error').nullable();
+    });
+  }
+  if (!(await db.schema.hasColumn('demo_vms', 'cleanup_attempts'))) {
+    await db.schema.alterTable('demo_vms', table => {
+      table.integer('cleanup_attempts').notNullable().defaultTo(0);
     });
   }
 }
@@ -361,6 +381,7 @@ export const demoModePlugin = createBackendPlugin({
               cleanup_reason: same?.cleanup_reason ?? null,
               cleanup_run_id: same?.cleanup_run_id ?? null,
               cleanup_attempt_at: same?.cleanup_attempt_at ?? null,
+              cleanup_attempts: same?.cleanup_attempts ?? 0,
               error: same?.error ?? null,
             };
             return vm;
@@ -416,6 +437,7 @@ export const demoModePlugin = createBackendPlugin({
               await db<Vm>('demo_vms').where({ name: vm.name }).update({
                 cleanup_generation: mode.generation,
                 cleanup_reason: 'quota',
+                cleanup_attempts: 0,
               });
             }
           }
@@ -431,9 +453,11 @@ export const demoModePlugin = createBackendPlugin({
               await db<Vm>('demo_vms').where({ name: vm.name }).update({
                 cleanup_generation: mode.generation,
                 cleanup_reason: 'expired',
+                cleanup_attempts: 0,
               });
               vm.cleanup_generation = mode.generation;
               vm.cleanup_reason = 'expired';
+              vm.cleanup_attempts = 0;
             }
             if (vm.cleanup_generation !== mode.generation || !vm.seen) continue;
             // A running/queued older generation must finish or skip before a new cleanup is sent.
@@ -454,11 +478,26 @@ export const demoModePlugin = createBackendPlugin({
               // Ambiguous dispatches stay reserved, visible to the operator; do not create duplicate runs.
               continue;
             }
-            await db<Vm>('demo_vms').where({ name: vm.name }).update({
-              cleanup_attempt_at: Date.now(),
-              cleanup_run_id: null,
-              error: null,
-            });
+            // Stop after repeated failed destroys (e.g. a broken Terraform destroy); an operator
+            // fixes the cause, then toggling demo mode starts a new generation and new attempts.
+            if (Number(vm.cleanup_attempts) >= maxCleanupAttempts) {
+              const stopped = `Cleanup stopped after ${maxCleanupAttempts} attempts; operator action needed`;
+              if (vm.error !== stopped) {
+                logger.warn(`Demo cleanup ${vm.name}: ${stopped}`);
+                await db<Vm>('demo_vms')
+                  .where({ name: vm.name })
+                  .update({ error: stopped });
+              }
+              continue;
+            }
+            await db<Vm>('demo_vms')
+              .where({ name: vm.name })
+              .update({
+                cleanup_attempt_at: Date.now(),
+                cleanup_attempts: Number(vm.cleanup_attempts) + 1,
+                cleanup_run_id: null,
+                error: null,
+              });
             try {
               const id = await dispatch('destroy.yml', {
                 name: vm.name,
@@ -682,7 +721,25 @@ export const demoModePlugin = createBackendPlugin({
             }
             const user = info.userEntityRef.split('/').pop()!;
             await exclusive(async () => {
-              await sync();
+              // Demo quota needs a complete scan (fail closed). Without demo mode, inventory
+              // drift only affects the name check, which provision validation repeats anyway.
+              try {
+                await sync();
+              } catch (error) {
+                if ((await getMode()).enabled) {
+                  res.status(503).json({
+                    error: `Demo quota check failed; try again shortly (${message(
+                      error,
+                    )})`,
+                  });
+                  return;
+                }
+                logger.warn(
+                  `Inventory scan failed; admitting ${name} without it: ${message(
+                    error,
+                  )}`,
+                );
+              }
               const hash = createHash('sha256').update(specJson).digest('hex');
               const existing = await db<Vm>('demo_vms')
                 .where({ request_id: requestId })
@@ -756,6 +813,7 @@ export const demoModePlugin = createBackendPlugin({
                 cleanup_reason: null,
                 cleanup_run_id: null,
                 cleanup_attempt_at: null,
+                cleanup_attempts: 0,
                 error: null,
               });
               try {
@@ -828,6 +886,8 @@ export const demoModePlugin = createBackendPlugin({
   },
 });
 
+type DispatchResult = { workflowRunId: number; workflowRunHtmlUrl: string };
+
 export function createDemoDispatchAction(
   auth: AuthService,
   discovery: DiscoveryService,
@@ -850,30 +910,63 @@ export function createDemoDispatchAction(
       const result = await ctx.checkpoint({
         key: 'cf.vm.dispatch',
         fn: async () => {
-          const { token } = await auth.getPluginRequestToken({
-            onBehalfOf: credentials,
-            targetPluginId: 'demo-mode',
-          });
           const base = await discovery.getBaseUrl('demo-mode');
-          const response = await fetch(`${base}/requests`, {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              name: ctx.input.name,
-              specJson: ctx.input.specJson,
-              requestId: ctx.task.id,
-            }),
-            signal: AbortSignal.timeout(120000),
-          });
-          const body = await response.json();
-          if (!response.ok)
-            throw new Error(
-              body.error ?? `VM dispatch HTTP ${response.status}`,
+          // The endpoint is idempotent per task ID and serialized, so a retry after a
+          // timeout or transient server error returns the first attempt's run instead
+          // of starting a second VM. Only deliberate refusals (string `error`) are final.
+          const deadline = Date.now() + 10 * 60 * 1000;
+          for (let attempt = 1; ; attempt++) {
+            const { token } = await auth.getPluginRequestToken({
+              onBehalfOf: credentials,
+              targetPluginId: 'demo-mode',
+            });
+            const timeout = AbortSignal.timeout(120000);
+            let response: Response | undefined;
+            let failure = '';
+            try {
+              response = await fetch(`${base}/requests`, {
+                method: 'POST',
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  name: ctx.input.name,
+                  specJson: ctx.input.specJson,
+                  requestId: ctx.task.id,
+                }),
+                signal: ctx.signal
+                  ? AbortSignal.any([timeout, ctx.signal])
+                  : timeout,
+              });
+            } catch (error) {
+              if (ctx.signal?.aborted) throw error;
+              failure = `VM dispatch request failed (${message(error)})`;
+            }
+            if (response) {
+              const body = await response.json().catch(() => undefined as any);
+              if (response.ok && body) return body as DispatchResult;
+              // Our endpoint's deliberate answers carry a string; Backstage's generic
+              // error handler sends { error: { name, message } }.
+              if (typeof body?.error === 'string') throw new Error(body.error);
+              failure = `VM dispatch HTTP ${response.status}${
+                typeof body?.error?.message === 'string'
+                  ? `: ${body.error.message}`
+                  : ''
+              }`;
+              if (response.status < 500) throw new Error(failure);
+            }
+            if (Date.now() > deadline)
+              throw new Error(
+                `${failure}. The VM may still have been requested; check the VM catalog before resubmitting.`,
+              );
+            ctx.logger.warn(
+              `${failure}; retrying the same request (attempt ${attempt + 1})`,
             );
-          return body as { workflowRunId: number; workflowRunHtmlUrl: string };
+            await new Promise(resolve =>
+              setTimeout(resolve, Math.min(5000 * attempt, 30000)),
+            );
+          }
         },
       });
       ctx.output('workflowRunId', result.workflowRunId);
