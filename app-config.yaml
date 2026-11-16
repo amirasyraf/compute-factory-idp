@@ -16,6 +16,12 @@ app:
             $not:
               kind: resource
               spec.type: vm
+    # Create lists only "Request a VM". Refry, destroy and SSH certificate act on an existing VM
+    # and open from the VM page (prefilled) and Home; their /create/templates/... URLs still work.
+    - sub-page:scaffolder/templates:
+        config:
+          templateFilter:
+            metadata.name: vm-request
 organization:
   name: Compute Factory
 computeFactory:

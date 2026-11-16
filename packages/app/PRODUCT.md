@@ -43,7 +43,8 @@ live job-by-job progress of that pipeline, both in the request task and on the V
 ## Capabilities and Constraints
 
 - Must keep every existing function: password sign-in, team-scoped catalog, VM status card, live
-  workflow-stage view on tasks, templates (request, SSH cert, refry, destroy), search, user settings.
+  workflow-stage view on tasks, templates (request, SSH cert, refry, destroy), search, user settings. The Create page
+  lists only "Request a VM"; the other templates act on an existing VM and open from the VM page or Home.
 - Customization only through official Backstage theming, extension overrides, blueprints and frontend
   modules. No forking or patching upstream plugins. Key pages (home, catalog list, VM page, request flow)
   may be rebuilt as custom pages composed from plugin building blocks.
