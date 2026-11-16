@@ -229,9 +229,18 @@ export function createWorkflowWatchAction(
         if (ctx.signal?.aborted)
           throw new Error('Workflow watch was cancelled');
 
+        // A just-dispatched run (and its jobs) can briefly 404 on GitHub's API.
         let run: WorkflowRun;
+        let jobs: WorkflowJob[];
         try {
           run = await getJson<WorkflowRun>(runUrl(runId), token);
+          jobs =
+            (
+              await getJson<{ jobs: WorkflowJob[] }>(
+                `${runUrl(runId)}/jobs?per_page=100`,
+                token,
+              )
+            ).jobs ?? [];
         } catch (error) {
           if ((error as { status?: number }).status !== 404) throw error;
           ctx.logger.info(
@@ -252,11 +261,6 @@ export function createWorkflowWatchAction(
         }
         checkedRunPath = true;
 
-        const jobsResponse = await getJson<{ jobs: WorkflowJob[] }>(
-          `${runUrl(runId)}/jobs?per_page=100`,
-          token,
-        );
-        const jobs = jobsResponse.jobs ?? [];
         const progress = workflowProgress(operation, run, jobs);
         const signature = JSON.stringify(progress);
 
