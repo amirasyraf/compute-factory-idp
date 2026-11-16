@@ -276,6 +276,20 @@ try {
                     instanceType: { type: 'string' },
                   },
                 },
+                tags: {
+                  title: 'Tags',
+                  type: 'object',
+                  required: ['costCenter', 'projectCode'],
+                  'ui:field': 'VmTagsEditor',
+                  properties: {
+                    costCenter: { type: 'string', minLength: 1 },
+                    projectCode: { type: 'string', minLength: 1 },
+                    extra: {
+                      type: 'object',
+                      additionalProperties: { type: 'string' },
+                    },
+                  },
+                },
               },
             },
           },
@@ -386,10 +400,7 @@ try {
     page.getByText('M · t3.medium · 2 vCPU · 4 GiB · x86_64', { exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByText('costCenter: CC-1234', { exact: true }),
-  ).toBeVisible();
-  await expect(
-    page.getByText('environment: test', { exact: true }),
+    page.getByText('cost_center: CC-1234, environment: test', { exact: true }),
   ).toBeVisible();
   assertNoErrors(errors);
   console.log(
@@ -445,6 +456,20 @@ try {
   await expect(card('L t3.large')).toHaveAttribute('aria-checked', 'false');
   await page.getByRole('button', { name: 'Use a size instead' }).click();
   await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'true');
+  // Tags: fixed, greyed-out cost_center/project_code keys with required values; optional rows.
+  await expect(page.getByLabel('cost_center key')).toBeDisabled();
+  await expect(page.getByLabel('project_code key')).toBeDisabled();
+  await page.getByLabel('cost_center value').fill('CC-1');
+  await page.getByLabel('project_code value').fill('');
+  await page.getByLabel('project_code value').blur();
+  await expect(page.getByText('Required', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  await page.getByLabel('Tag 1 key').fill('Cost_Center');
+  await expect(page.getByText('Reserved key')).toBeVisible();
+  await page.getByLabel('Tag 1 key').fill('environment');
+  await expect(page.getByText('Reserved key')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Remove tag 1' }).click();
+  await expect(page.getByLabel('Tag 1 key')).toHaveCount(0);
   // Demo mode: only t3.micro..t3.large selectable.
   demoOn = true;
   await page.reload();
@@ -457,7 +482,7 @@ try {
   demoOn = false;
   assertNoErrors(errors);
   console.log(
-    'VM SIZE UI PASS: size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
+    'VM SIZE + TAGS UI PASS: tags table with fixed required cost_center/project_code and optional rows; size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
   );
   await page.goto(`${base}/`);
   const banner = page.getByText(

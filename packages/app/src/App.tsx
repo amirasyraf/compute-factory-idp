@@ -49,6 +49,13 @@ const scaffolder = scaffolderPlugin.withOverrides({
         field: () => import('./VmComputePicker').then(m => m.VmComputePicker),
       },
     }),
+    // One AWS tags table: fixed cost_center/project_code plus optional tags.
+    FormFieldBlueprint.make({
+      name: 'vm-tags-editor',
+      params: {
+        field: () => import('./VmTagsEditor').then(m => m.VmTagsEditor),
+      },
+    }),
     // Older template revision used `ui:field: VmSizePicker` on `size`; cards only.
     FormFieldBlueprint.make({
       name: 'vm-size-picker',

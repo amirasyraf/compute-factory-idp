@@ -410,12 +410,8 @@ export function VmStatusCard() {
             <dd>{desired.adJoin}</dd>
           </div>
           <div>
-            <dt>Billing (self-reported)</dt>
-            <dd>{desired.billing}</dd>
-          </div>
-          <div>
-            <dt>Cloud tags</dt>
-            <dd>{desired.cloudTags}</dd>
+            <dt>Tags</dt>
+            <dd>{desired.tags}</dd>
           </div>
         </dl>
       </div>

@@ -15,6 +15,11 @@ function entries(value: unknown): string {
   return pairs.map(([key, item]) => `${key}: ${item}`).join(', ') || 'none';
 }
 
+const billingTagKeys: Record<string, string> = {
+  costCenter: 'cost_center',
+  projectCode: 'project_code',
+};
+
 // Desired values come exclusively from spec; annotations are observed state/provenance.
 export function getVmConfiguration(value: unknown) {
   const spec = object(value);
@@ -33,7 +38,15 @@ export function getVmConfiguration(value: unknown) {
     software: software.join(', ') || 'none',
     adJoin:
       configuration.adJoin === true ? 'Requested (mock)' : 'Not requested',
-    billing: entries(spec.billing),
-    cloudTags: entries(spec.cloudTags),
+    // AWS tags as launched: billing fields become cost_center/project_code.
+    tags: entries({
+      ...Object.fromEntries(
+        Object.entries(object(spec.billing)).map(([key, item]) => [
+          billingTagKeys[key] ?? key,
+          item,
+        ]),
+      ),
+      ...object(spec.cloudTags),
+    }),
   };
 }

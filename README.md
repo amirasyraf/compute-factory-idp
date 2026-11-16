@@ -13,7 +13,10 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   (the destroy workflow records no per-step progress); when a refresh finds the entity removed from the
   catalog it shows "Destroyed" with the run link and a link back to Resources, and stops polling.
   Desired software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
-  Billing metadata is self-reported, not organizational billing authorization. Custom spec validation is
+  Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
+  not organizational billing authorization. The request form's `VmTagsEditor` field
+  (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
+  `project_code` rows and optional extra tags; `/api/demo-mode/requests` rejects requests without them. Custom spec validation is
   performed by the platform workflow; malformed custom fields are rendered defensively by the card.
   It also exports the shared pipeline helpers and `PipelineLine` (the eight stations drawn as a transit
   line; skipped stages are drawn as non-stops) used by the home page. For VM entities only it supplies

@@ -655,6 +655,18 @@ export const demoModePlugin = createBackendPlugin({
               res.status(400).json({ error: 'Invalid spec' });
               return;
             }
+            const billing = spec.billing ?? {};
+            if (
+              typeof billing.costCenter !== 'string' ||
+              !billing.costCenter.trim() ||
+              typeof billing.projectCode !== 'string' ||
+              !billing.projectCode.trim()
+            ) {
+              res.status(400).json({
+                error: 'Tags cost_center and project_code are required',
+              });
+              return;
+            }
             const team = /^group:default\/([a-z][a-z0-9-]*)$/.exec(
               spec.owner ?? '',
             )?.[1];
