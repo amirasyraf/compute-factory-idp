@@ -12,7 +12,9 @@ if (!user || !password) throw new Error('Set CF_USER and CF_PASSWORD');
 
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
 try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const page = await browser.newPage({
+    viewport: { width: 1440, height: 1000 },
+  });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
 
@@ -38,9 +40,7 @@ try {
   }
   for (const item of sizes.sizes) {
     await expect(
-      page.getByRole('radio', {
-        name: new RegExp(`^${item.size} — ${item.instanceType.replace('.', '\\.')} · \\d+ vCPU`),
-      }),
+      page.getByRole('radio', { name: `${item.size} ${item.instanceType}` }),
     ).toBeVisible();
   }
   console.log(
@@ -52,6 +52,41 @@ try {
           } GiB)`,
       )
       .join(', ')}`,
+  );
+
+  // Advanced picker: the real region catalog from AWS (x86_64 types offered here).
+  const catalogResponse = page.waitForResponse(response =>
+    response.url().endsWith('/api/vm-sizes/instance-types'),
+  );
+  await page
+    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .click();
+  const catalog = await (await catalogResponse).json();
+  if (!Array.isArray(catalog.types) || catalog.types.length < 50)
+    throw new Error(
+      `Instance-type catalog too small: ${JSON.stringify(catalog).slice(
+        0,
+        300,
+      )}`,
+    );
+  const types = page.getByRole('table', { name: 'EC2 instance types' });
+  await expect(types.getByRole('radio', { name: 't3.micro' })).toBeVisible();
+  const demoOn = (await page.getByText(/Demo mode is on: only/).count()) > 0;
+  const blocked = catalog.types.find(
+    item => item.currentGeneration && !item.type.startsWith('t3.'),
+  );
+  if (demoOn && blocked)
+    await expect(
+      types.getByRole('radio', { name: blocked.type }),
+    ).toBeDisabled();
+  console.log(
+    `ADVANCED PICKER LIVE PASS: ${catalog.types.length} types in ${
+      catalog.region
+    }, ${
+      new Set(catalog.types.map(item => item.family)).size
+    } families; demo mode ${
+      demoOn ? `on, ${blocked?.type} greyed out` : 'off'
+    }`,
   );
 
   // Task page delivery: the newest own task must load events by long polling, not SSE.
@@ -66,7 +101,9 @@ try {
   if (await taskLink.count()) {
     await taskLink.click();
     await expect(page.getByText('Workflow stages')).toBeVisible();
-    await expect.poll(() => polls.length, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect
+      .poll(() => polls.length, { timeout: 15000 })
+      .toBeGreaterThan(0);
     if (polls.includes('eventstream')) throw new Error('Task page used SSE');
     console.log('TASK PAGE LIVE PASS: events delivered by long polling');
   } else {

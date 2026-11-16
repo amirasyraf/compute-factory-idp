@@ -71,6 +71,7 @@ const stage = (name, status, steps = []) => ({
   steps,
 });
 let revision = 1;
+let demoOn = false;
 let streamRequests = 0;
 let snapshot = {
   version: 1,
@@ -198,11 +199,57 @@ try {
       });
       json = {
         sizes: [
+          { size: 'XS', instanceType: 't3.micro', specs: specs(1024) },
           { size: 'S', instanceType: 't3.small', specs: specs(2048) },
           { size: 'M', instanceType: 't3.medium', specs: specs(4096) },
           { size: 'L', instanceType: 't3.large', specs: specs(8192) },
         ],
         error: null,
+      };
+    } else if (path.endsWith('/vm-sizes/instance-types')) {
+      const type = (name, category, vcpus, gib, extra = {}) => ({
+        type: name,
+        family: name.split('.')[0],
+        category,
+        currentGeneration: true,
+        bareMetal: false,
+        gpus: null,
+        vcpus,
+        memoryMiB: gib * 1024,
+        architectures: ['x86_64'],
+        network: 'Up to 12.5 Gigabit',
+        burstable: false,
+        ...extra,
+      });
+      json = {
+        region: 'ap-southeast-2',
+        types: [
+          ...[
+            ['micro', 2, 1],
+            ['small', 2, 2],
+            ['medium', 2, 4],
+            ['large', 2, 8],
+          ].map(([size, vcpus, gib]) =>
+            type(`t3.${size}`, 'General purpose', vcpus, gib, {
+              burstable: true,
+            }),
+          ),
+          type('m7i.large', 'General purpose', 2, 8),
+          type('m7i.xlarge', 'General purpose', 4, 16),
+          type('m4.large', 'General purpose', 2, 8, {
+            currentGeneration: false,
+          }),
+          type('c7i.xlarge', 'Compute optimized', 4, 8),
+          type('r7i.large', 'Memory optimized', 2, 16),
+          type('g5.xlarge', 'Accelerated computing', 4, 16, {
+            gpus: '1× NVIDIA A10G',
+          }),
+        ],
+      };
+    } else if (demoOn && path.endsWith('/demo-mode/state')) {
+      json = {
+        enabled: true,
+        instanceTypes: ['t3.micro', 't3.small', 't3.medium', 't3.large'],
       };
     } else if (path.endsWith('/vm-request/parameter-schema')) {
       json = {
@@ -214,15 +261,19 @@ try {
               type: 'object',
               properties: {
                 compute: {
+                  title: 'Compute',
                   type: 'object',
+                  required: ['platform', 'os'],
+                  'ui:field': 'VmComputePicker',
                   properties: {
+                    platform: { type: 'string', default: 'aws', enum: ['aws'] },
+                    os: { type: 'string', default: 'ubuntu', enum: ['ubuntu'] },
                     size: {
                       title: 'Size',
                       type: 'string',
-                      default: 'S',
-                      enum: ['S', 'M', 'L'],
-                      'ui:field': 'VmSizePicker',
+                      enum: ['XS', 'S', 'M', 'L'],
                     },
+                    instanceType: { type: 'string' },
                   },
                 },
               },
@@ -363,18 +414,55 @@ try {
     'HOME UI PASS: top bar, team VM table with pipeline line, next action and empty filter state (fixture APIs)',
   );
   await page.goto(`${base}/create/templates/default/vm-request`);
+  const card = name => page.getByRole('radio', { name });
+  for (const name of ['XS t3.micro', 'S t3.small', 'M t3.medium', 'L t3.large'])
+    await expect(card(name)).toBeVisible();
+  await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'true');
+  await card('L t3.large').click();
+  await expect(card('L t3.large')).toHaveAttribute('aria-checked', 'true');
+  await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'false');
+  // Advanced picker stays hidden until asked for.
+  const types = page.getByRole('table', { name: 'EC2 instance types' });
+  await expect(types).toHaveCount(0);
+  await page
+    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .click();
+  await expect(types).toBeVisible();
+  // Previous generation hidden by default; family grouping and category tabs.
+  await expect(types.getByText('m4.large')).toHaveCount(0);
   await expect(
-    page.getByText('— t3.large · 2 vCPU · 8 GiB · x86_64'),
+    types.getByText(/^m7i · General purpose · 2 types$/),
   ).toBeVisible();
-  await expect(page.getByRole('radio', { name: /^S — t3\.small/ })).toBeChecked();
-  await page.getByRole('radio', { name: /^L — t3\.large/ }).check();
-  await expect(page.getByRole('radio', { name: /^L — t3\.large/ })).toBeChecked();
+  await page.getByRole('tab', { name: /Accelerated computing/ }).click();
+  await expect(types.getByText('g5.xlarge')).toBeVisible();
+  await expect(types.getByText('m7i.large')).toHaveCount(0);
+  await page.getByRole('tab', { name: /^All/ }).click();
+  await page.getByLabel('Search instance types').fill('c7i');
+  await expect(types.getByRole('radio')).toHaveCount(1);
+  await page.getByLabel('Search instance types').fill('');
+  await types.getByRole('radio', { name: 'm7i.large' }).check();
+  await expect(page.getByText('Using instance type m7i.large')).toBeVisible();
+  await expect(card('L t3.large')).toHaveAttribute('aria-checked', 'false');
+  await page.getByRole('button', { name: 'Use a size instead' }).click();
+  await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'true');
+  // Demo mode: only t3.micro..t3.large selectable.
+  demoOn = true;
+  await page.reload();
+  await page
+    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .click();
+  await expect(types.getByRole('radio', { name: 'm7i.large' })).toBeDisabled();
+  await expect(types.getByRole('radio', { name: 't3.micro' })).toBeEnabled();
+  await expect(page.getByText(/Demo mode is on: only t3\.micro/)).toBeVisible();
+  demoOn = false;
   assertNoErrors(errors);
   console.log(
-    'VM SIZE UI PASS: request form lists sizes with instance types and AWS specs; VM card and home row show the launched type (fixture APIs)',
+    'VM SIZE UI PASS: size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
   );
   await page.goto(`${base}/`);
-  const banner = page.getByText('A new version of Compute Factory is available.');
+  const banner = page.getByText(
+    'A new version of Compute Factory is available.',
+  );
   const running = await page.evaluate(
     () =>
       /\/static\/main\.([0-9a-f]{8,})\.js/.exec(

@@ -20,9 +20,16 @@ export {
 export { getVmConfiguration } from './vmSpec';
 export {
   describeSpecs,
+  memoryText,
+  sizeBadge,
+  useDemoRestriction,
+  useInstanceTypeCatalog,
+  useVmSizeText,
   useVmSizes,
-  vmSizeText,
+  type CatalogInstanceType,
+  type DemoRestriction,
   type InstanceSpecs,
+  type InstanceTypeCatalog,
   type VmSize,
   type VmSizes,
 } from './vmSizes';

@@ -1,7 +1,10 @@
 import {
   DescribeInstanceTypesCommand,
   EC2Client,
+  InstanceTypeInfo,
   _InstanceType,
+  paginateDescribeInstanceTypeOfferings,
+  paginateDescribeInstanceTypes,
 } from '@aws-sdk/client-ec2';
 import {
   coreServices,
@@ -25,6 +28,38 @@ type Specs = {
   burstable: boolean;
 };
 type Size = { size: string; instanceType: string; specs: Specs | null };
+type CatalogType = Specs & {
+  type: string;
+  family: string;
+  category: string;
+  currentGeneration: boolean;
+  bareMetal: boolean;
+  gpus: string | null;
+};
+
+// AWS's instance families, keyed by the family's leading letters (m7i -> m, inf2 -> inf).
+const categories: [RegExp, string][] = [
+  [/^(t|m|a)$/, 'General purpose'],
+  [/^c$/, 'Compute optimized'],
+  [/^(r|x|z|u)$/, 'Memory optimized'],
+  [/^(i|im|is|d|h)$/, 'Storage optimized'],
+  [/^(p|g|inf|trn|dl|f|vt)$/, 'Accelerated computing'],
+  [/^hpc$/, 'High performance computing'],
+];
+function category(family: string): string {
+  const letters = /^[a-z]+/.exec(family)?.[0] ?? family;
+  return categories.find(([pattern]) => pattern.test(letters))?.[1] ?? 'Other';
+}
+
+function toSpecs(item: InstanceTypeInfo): Specs {
+  return {
+    vcpus: item.VCpuInfo?.DefaultVCpus ?? null,
+    memoryMiB: item.MemoryInfo?.SizeInMiB ?? null,
+    architectures: item.ProcessorInfo?.SupportedArchitectures ?? [],
+    network: item.NetworkInfo?.NetworkPerformance ?? null,
+    burstable: item.BurstablePerformanceSupported ?? false,
+  };
+}
 
 async function fetchSizes(): Promise<Record<string, string>> {
   const token = process.env.GITHUB_TOKEN;
@@ -97,13 +132,7 @@ export const vmSizesPlugin = createBackendPlugin({
               const value: Record<string, Specs> = {};
               for (const item of result.InstanceTypes ?? []) {
                 if (!item.InstanceType) continue;
-                value[item.InstanceType] = {
-                  vcpus: item.VCpuInfo?.DefaultVCpus ?? null,
-                  memoryMiB: item.MemoryInfo?.SizeInMiB ?? null,
-                  architectures: item.ProcessorInfo?.SupportedArchitectures ?? [],
-                  network: item.NetworkInfo?.NetworkPerformance ?? null,
-                  burstable: item.BurstablePerformanceSupported ?? false,
-                };
+                value[item.InstanceType] = toSpecs(item);
               }
               specs = { at: Date.now(), value };
               specsError = null;
@@ -125,7 +154,83 @@ export const vmSizesPlugin = createBackendPlugin({
           return { sizes: result, error: specsError };
         }
 
+        // Every type this account can launch in the region that boots the x86_64 golden image.
+        // Mac types need dedicated hosts and are excluded. A few paginated calls, cached an hour.
+        let catalog: { at: number; value: CatalogType[] } | undefined;
+        let catalogLoad: Promise<CatalogType[]> | undefined;
+        async function loadCatalog(): Promise<CatalogType[]> {
+          const offered = new Set<string>();
+          for await (const page of paginateDescribeInstanceTypeOfferings(
+            { client: ec2 },
+            { LocationType: 'availability-zone' },
+          )) {
+            for (const item of page.InstanceTypeOfferings ?? [])
+              if (item.InstanceType) offered.add(item.InstanceType);
+          }
+          const types: CatalogType[] = [];
+          for await (const page of paginateDescribeInstanceTypes(
+            { client: ec2 },
+            {
+              Filters: [
+                {
+                  Name: 'processor-info.supported-architecture',
+                  Values: ['x86_64'],
+                },
+                { Name: 'supported-root-device-type', Values: ['ebs'] },
+              ],
+            },
+          )) {
+            for (const item of page.InstanceTypes ?? []) {
+              const type = item.InstanceType;
+              if (!type || !offered.has(type) || type.startsWith('mac'))
+                continue;
+              const family = type.split('.')[0];
+              const gpu = item.GpuInfo?.Gpus?.[0];
+              types.push({
+                ...toSpecs(item),
+                type,
+                family,
+                category: category(family),
+                currentGeneration: item.CurrentGeneration ?? false,
+                bareMetal: item.BareMetal ?? false,
+                gpus: gpu
+                  ? `${gpu.Count ?? 1}× ${[gpu.Manufacturer, gpu.Name]
+                      .filter(Boolean)
+                      .join(' ')}`
+                  : null,
+              });
+            }
+          }
+          return types.sort((a, b) => a.type.localeCompare(b.type));
+        }
+
         const router = express.Router();
+        router.get('/instance-types', async (req, res, next) => {
+          try {
+            await httpAuth.credentials(req, { allow: ['user'] });
+            if (!catalog || Date.now() - catalog.at > specsTtlMs) {
+              catalogLoad ??= loadCatalog().finally(() => {
+                catalogLoad = undefined;
+              });
+              try {
+                catalog = { at: Date.now(), value: await catalogLoad };
+              } catch (error) {
+                const failure = `AWS instance types unavailable: ${
+                  (error as Error).message
+                }`;
+                logger.warn(`VM sizes: ${failure}`);
+                // Keep serving the last good list during an AWS/IAM failure.
+                if (!catalog) {
+                  res.status(503).json({ error: failure });
+                  return;
+                }
+              }
+            }
+            res.json({ region: process.env.AWS_REGION, types: catalog.value });
+          } catch (error) {
+            next(error);
+          }
+        });
         router.get('/sizes', async (req, res, next) => {
           try {
             await httpAuth.credentials(req, { allow: ['user'] });

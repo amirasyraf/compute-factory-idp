@@ -63,14 +63,27 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
   reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
   `App.tsx` and this file.
-- **VM sizes** (`plugins/cf-backend/src/vmSizes.ts`, `packages/app/src/VmSizePicker.tsx`,
-  `plugins/vm-status/src/vmSizes.ts`): `GET /api/vm-sizes/sizes` (signed-in users) returns the platform's
-  `terraform/platforms/aws/sizes.json` (read from GitHub `main`, cached 5 minutes, last good copy kept
-  during outages) with vCPU, memory, architecture and network from `ec2:DescribeInstanceTypes` (cached
-  1 hour; needs the IDP host role's read-only permission). Without AWS access the response carries an
-  `error` and types without specs. The platform template's `ui:field: VmSizePicker` shows each option as
-  "S — t3.small · 2 vCPU · 2 GiB · x86_64"; the submitted value stays `S`/`M`/`L`. The home row, VM header
-  and VM card show the launched type from `cf/instance-type`, else the type the size maps to now.
+- **VM sizes and instance types** (`plugins/cf-backend/src/vmSizes.ts`,
+  `packages/app/src/VmComputePicker.tsx`, `plugins/vm-status/src/vmSizes.ts`), signed-in users only:
+  - `GET /api/vm-sizes/sizes`: the platform's `terraform/platforms/aws/sizes.json` (XS-L, read from GitHub
+    `main`, cached 5 minutes, last good copy kept during outages) with vCPU, memory, architecture and
+    network from `ec2:DescribeInstanceTypes` (cached 1 hour). Without AWS access it returns an `error`
+    and types without specs.
+  - `GET /api/vm-sizes/instance-types`: every x86_64, EBS-backed instance type offered in the region
+    (`DescribeInstanceTypeOfferings` + `DescribeInstanceTypes`, `mac*` excluded), with family, category,
+    generation, GPUs and bare-metal flag. Cached 1 hour; the last good list is kept on AWS errors.
+  - The platform template's `ui:field: VmComputePicker` on `compute` renders platform/OS, size **cards**
+    (size, instance type, vCPU, memory, network, CPU) and a collapsed **Advanced** picker: category tabs
+    with counts, rows grouped by family, search, family/min vCPU/min memory filters, a
+    current-generation toggle and sortable type/vCPU/memory columns. It submits exactly one of `size` or
+    `instanceType` and preselects `S` (the schema has no `size` default, which the form would otherwise
+    re-add beside an instance type). `VmSizePicker` (cards only, on a `size` string) stays registered for
+    the earlier template revision.
+  - **Demo mode:** `demo-mode` `/state` returns `instanceTypes` (`t3.micro`–`t3.large`); while it is on,
+    other types are greyed out and unselectable, and `/api/demo-mode/requests` rejects them (403).
+  - The home row, VM header and VM card show the launched type from `cf/instance-type`, else the
+    requested `instanceType` ("Custom · …") or the type the size maps to now. The size badge shows the
+    size (`XS`…`L`) or `◆` for a custom type.
 - `packages/app/src/ClientMonitor.tsx` (app-root element) and `clientLog.ts`:
   - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
     bundle. Every 60 seconds and on tab focus, the tab fetches `index.html` (served `no-store`) and

@@ -14,6 +14,14 @@ const repository = 'amirasyraf/compute-factory-platform';
 const api = `https://api.github.com/repos/${repository}`;
 const limit = 3;
 const lifetime = 5 * 60 * 1000;
+// While demo mode is on, Advanced instance-type requests are limited to these (cost control).
+// Size letters are allowed: sizes.json maps XS-L to exactly these types.
+export const demoInstanceTypes = [
+  't3.micro',
+  't3.small',
+  't3.medium',
+  't3.large',
+];
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
 type Mode = {
   id: number;
@@ -513,6 +521,7 @@ export const demoModePlugin = createBackendPlugin({
                 isAdmin: info.admin,
                 automationAvailable: automation,
                 limit,
+                instanceTypes: demoInstanceTypes,
                 ttlSeconds: lifetime / 1000,
                 ownedCount: all.filter(vm => vm.requested_by === own).length,
                 lastScan,
@@ -695,6 +704,19 @@ export const demoModePlugin = createBackendPlugin({
                 return;
               }
               const mode = await getMode();
+              const instanceType = spec.compute?.instanceType;
+              if (
+                mode.enabled &&
+                instanceType !== undefined &&
+                !demoInstanceTypes.includes(instanceType)
+              ) {
+                res.status(403).json({
+                  error: `Demo mode allows only ${demoInstanceTypes.join(
+                    ', ',
+                  )}. Pick one of those or a size.`,
+                });
+                return;
+              }
               const rows = await getVms();
               if (
                 mode.enabled &&

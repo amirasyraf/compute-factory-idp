@@ -41,11 +41,19 @@ const clientMonitor = AppRootElementBlueprint.make({
 // Scaffolder customisations; default fields, task UI, logs and controls are preserved.
 const scaffolder = scaffolderPlugin.withOverrides({
   extensions: [
-    // Size field with instance types and live AWS specs (platform template `ui:field`).
+    // VM request compute field: size cards with live AWS specs and an Advanced
+    // instance-type picker (platform template `ui:field: VmComputePicker`).
+    FormFieldBlueprint.make({
+      name: 'vm-compute-picker',
+      params: {
+        field: () => import('./VmComputePicker').then(m => m.VmComputePicker),
+      },
+    }),
+    // Older template revision used `ui:field: VmSizePicker` on `size`; cards only.
     FormFieldBlueprint.make({
       name: 'vm-size-picker',
       params: {
-        field: () => import('./VmSizePicker').then(m => m.VmSizePicker),
+        field: () => import('./VmComputePicker').then(m => m.VmSizePicker),
       },
     }),
     // Long-poll task events instead of SSE (see taskEventPolling.ts, incl. how to revert).

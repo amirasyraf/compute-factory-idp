@@ -8,6 +8,8 @@ import { Config } from '@backstage/config';
 import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import express from 'express';
 
+const sizePattern = /^([A-Z]{1,4}|[a-z][a-z0-9-]*\.[a-z0-9]+)$/;
+
 // A stateless demo receiver, not a ServiceNow emulator or a ticket database.
 export const mockRestPlugin = createBackendPlugin({
   pluginId: 'mock-rest',
@@ -61,7 +63,7 @@ export const mockRestPlugin = createBackendPlugin({
               !/^[a-z][a-z0-9-]{2,20}$/.test(body.vmName) ||
               body.platform !== 'aws' ||
               body.os !== 'ubuntu' ||
-              !['S', 'M', 'L'].includes(body.size)
+              !sizePattern.test(body.size)
             ) {
               res.status(400).json({ error: 'Invalid mock VM request' });
               return;
@@ -133,7 +135,8 @@ export function createServiceNowRequestAction(
             .regex(/^[a-zA-Z0-9_./:-]+$/),
         platform: z => z.enum(['aws']),
         os: z => z.enum(['ubuntu']),
-        size: z => z.enum(['S', 'M', 'L']),
+        // A size letter (XS-L) or the Advanced picker's explicit instance type.
+        size: z => z.string().regex(sizePattern),
       },
       output: {
         number: z => z.string(),
