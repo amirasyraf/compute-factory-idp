@@ -56,7 +56,8 @@ export function runStations(run?: RunView) {
   return (
     run?.stages.map(stage => ({
       process: stage.id,
-      label: stageLabel(stage.id),
+      // Station labels are narrow; stage rows keep the full "ServiceNow request".
+      label: stage.id === 'servicenow' ? 'ServiceNow' : stageLabel(stage.id),
     })) ?? STATIONS
   );
 }
