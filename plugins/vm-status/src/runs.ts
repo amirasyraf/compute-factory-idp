@@ -58,9 +58,14 @@ export function useVmsApi() {
     async function request<T>(path: string, method = 'GET'): Promise<T> {
       const base = await discovery.getBaseUrl('vms');
       const response = await fetchApi.fetch(`${base}${path}`, { method });
-      const body = await response.json();
-      if (!response.ok)
-        throw new Error(body.error || `VM API: ${response.status}`);
+      const body = await response.json().catch(() => undefined);
+      if (!response.ok || body === undefined) {
+        let message = `VM API: ${response.status}`;
+        if (typeof body?.error === 'string') message = body.error;
+        else if (typeof body?.error?.message === 'string')
+          message = body.error.message;
+        throw new Error(message);
+      }
       return body;
     }
     return {
