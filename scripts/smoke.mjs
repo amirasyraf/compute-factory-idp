@@ -288,7 +288,7 @@ try {
   });
   if (staleToggle.status !== 409)
     throw new Error('Stale demo settings accepted');
-  const disabledAutomation = await fetch(`${demoBase}/requests`, {
+  const disabledAutomation = await fetch(`${vmsBase}/requests`, {
     method: 'POST',
     headers: userHeaders,
     body: '{}',
