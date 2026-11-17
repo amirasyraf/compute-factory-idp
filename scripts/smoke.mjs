@@ -20,7 +20,6 @@ const port = 17007;
 const baseUrl = `http://localhost:${port}`;
 const proxyPort = 17008;
 const proxyUrl = `http://localhost:${proxyPort}`;
-const failureConfigPath = resolve('Caddyfile.smoke.local');
 const token = 'local-smoke-static-catalog-token';
 const containerName = `cf-idp-smoke-${process.pid}`;
 const proxyName = `${containerName}-caddy`;
@@ -52,10 +51,6 @@ const config = {
 };
 // Contains only dummy local credentials, never the GitHub token.
 await writeFile(configPath, JSON.stringify(config), { mode: 0o644 });
-await writeFile(
-  failureConfigPath,
-  `http://:${proxyPort} {\n  respond /mock-rest/servicenow 503\n  reverse_proxy backstage:7007\n}\n`,
-);
 await run('docker', ['network', 'create', networkName]);
 const child = spawn(
   'docker',
@@ -130,8 +125,6 @@ try {
     `IDP_DOMAIN=http://:${proxyPort}`,
     '-v',
     `${resolve('deploy/Caddyfile')}:/etc/caddy/Caddyfile:ro`,
-    '-v',
-    `${failureConfigPath}:/etc/caddy/failure.Caddyfile:ro`,
     'caddy:2',
   ]);
   ready = false;
@@ -335,108 +328,20 @@ try {
   });
   if (userAccess.status !== 403)
     throw new Error(`Direct user mock access: ${userAccess.status}`);
-  const template = {
-    apiVersion: 'scaffolder.backstage.io/v1beta3',
-    kind: 'Template',
-    metadata: { name: 'mock-rest-smoke' },
-    spec: {
-      owner: 'group:default/alpha',
-      type: 'service',
-      steps: [
-        {
-          id: 'servicenow',
-          name: 'Create ServiceNow request (mock)',
-          action: 'cf:servicenow:create',
-          input: payload,
-        },
-      ],
-      output: {
-        number: '${{ steps.servicenow.output.number }}',
-        httpStatus: '${{ steps.servicenow.output.httpStatus }}',
-      },
-    },
-  };
-  const dryRun = await fetch(`${proxyUrl}/api/scaffolder/v2/dry-run`, {
-    method: 'POST',
-    headers: userHeaders,
-    body: JSON.stringify({ template, values: {}, directoryContents: [] }),
-  });
-  const result = await dryRun.json();
-  if (!dryRun.ok)
-    throw new Error(`Mock REST dry-run failed: ${JSON.stringify(result)}`);
-  if (
-    result.output.httpStatus !== 201 ||
-    !/^RITM\d{10}$/.test(result.output.number)
-  ) {
-    throw new Error(
-      `Invalid mock REST output: ${JSON.stringify(result.output)}`,
-    );
-  }
-  if (
-    !result.log.some(event => event.body.message.includes('HTTP 201 Created'))
-  ) {
-    throw new Error('Missing REST response evidence in Scaffolder logs');
-  }
-  const receiverLogs = (await run('docker', ['logs', containerName])).stdout;
-  if (
-    !receiverLogs.includes('Mock ServiceNow received POST:') ||
-    !receiverLogs.includes(result.output.number)
-  ) {
-    throw new Error('Missing matching receiver-side HTTP evidence');
-  }
   const browser = await run('node', ['scripts/workflow-ui.mjs'], {
     env: { ...process.env, WORKFLOW_UI_URL: proxyUrl },
     timeout: 90000,
   });
   console.log(browser.stdout);
-  // Make the real REST hop return 503; no following action may execute.
-  await run('docker', [
-    'exec',
-    proxyName,
-    'caddy',
-    'reload',
-    '--config',
-    '/etc/caddy/failure.Caddyfile',
-    '--adapter',
-    'caddyfile',
-  ]);
-  const failedTemplate = structuredClone(template);
-  failedTemplate.spec.steps.push({
-    id: 'must-not-run',
-    action: 'debug:log',
-    input: { message: 'UNEXPECTED_DOWNSTREAM_STEP' },
-  });
-  const failure = await fetch(`${proxyUrl}/api/scaffolder/v2/dry-run`, {
-    method: 'POST',
-    headers: userHeaders,
-    body: JSON.stringify({
-      template: failedTemplate,
-      values: {},
-      directoryContents: [],
-    }),
-  });
-  const failureBody = await failure.text();
-  const failureLogs = (await run('docker', ['logs', containerName])).stdout;
-  if (
-    failure.ok ||
-    !failureBody.includes('Mock ServiceNow returned HTTP 503') ||
-    failureLogs.includes('UNEXPECTED_DOWNSTREAM_STEP')
-  ) {
-    throw new Error(
-      `Pre-GHA failure did not stop execution: ${failure.status} ${failureBody}`,
-    );
-  }
   console.log(
     'SMOKE PASS',
     JSON.stringify({
       readiness: 200,
       refs,
       platformTemplates,
-      mockRest: result.output,
-      anonymous: anonymous.status,
-      catalogOnly: catalogOnly.status,
-      directUser: userAccess.status,
-      failedPreGha: failure.status,
+      mockRestAnonymous: anonymous.status,
+      mockRestCatalogToken: catalogOnly.status,
+      mockRestUser: userAccess.status,
     }),
   );
   if (platformTemplates.length !== 3)
@@ -454,6 +359,5 @@ try {
     await done;
   }
   await rm(configPath, { force: true });
-  await rm(failureConfigPath, { force: true });
   await run('docker', ['network', 'rm', networkName]).catch(() => {});
 }

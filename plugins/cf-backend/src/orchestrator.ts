@@ -51,6 +51,7 @@ type Stage = {
   skipped_by: string | null;
   retried_by: string | null;
   outcome: 'ready' | 'failed' | null;
+  summary: string | null;
   steps: string;
   attempts: string;
 };
@@ -160,7 +161,19 @@ export async function initializeOrchestrator(db: Database) {
       table.primary(['run_id', 'stage']);
     });
   }
+  if (!(await db.schema.hasColumn('vm_run_stages', 'summary'))) {
+    await db.schema.alterTable('vm_run_stages', table => {
+      table.text('summary').nullable();
+    });
+  }
 }
+
+/**
+ * A stage that runs inside the IDP instead of as a `stage.yml` dispatch. It returns a one-line
+ * summary; throw an error with `permanent: true` to fail without automatic retries. Handlers must
+ * be idempotent per run: an attempt interrupted by a restart is run again.
+ */
+export type InProcessStage = (run: Run) => Promise<string>;
 
 export type NewRun = {
   kind: RunKind;
@@ -178,6 +191,7 @@ function plan(kind: RunKind, params: Record<string, any>) {
   if (kind === 'provision') {
     const configuration = params.spec?.configuration ?? {};
     stages = [
+      { stage: 'servicenow', applies: true },
       { stage: 'register', applies: true },
       { stage: 'provision', applies: true },
       { stage: 'baseline', applies: true },
@@ -221,8 +235,9 @@ export function createOrchestrator(options: {
   db: Database;
   logger: LoggerService;
   appBaseUrl: string;
+  inProcess: Record<string, InProcessStage>;
 }) {
-  const { db, logger } = options;
+  const { db, logger, inProcess } = options;
   const runUrl = (id: number) => `${options.appBaseUrl}/vms/runs/${id}`;
 
   const getRun = async (id: number) => {
@@ -401,11 +416,9 @@ export function createOrchestrator(options: {
     );
   }
 
-  async function dispatch(run: Run, stage: Stage) {
+  async function begin(run: Run, stage: Stage) {
     const attempt = stage.attempt + 1;
     const now = Date.now();
-    // Persist the attempt (and its run key) before dispatching, so a crash or lost
-    // response is recovered by finding the run, not by dispatching blindly again.
     await updateStage(stage, {
       ...archive(stage),
       status: 'running',
@@ -417,9 +430,37 @@ export function createOrchestrator(options: {
       finished_at: null,
       error: null,
       steps: '[]',
+      summary: null,
       outcome: stage.outcome,
     });
     await touch(run.id);
+    return attempt;
+  }
+
+  async function execute(run: Run, stage: Stage, handler: InProcessStage) {
+    const attempt = await begin(run, stage);
+    try {
+      const summary = await handler(run);
+      await updateStage(stage, {
+        status: 'success',
+        conclusion: 'success',
+        summary,
+        error: null,
+        finished_at: Date.now(),
+      });
+      logger.info(
+        `VM run ${run.id} ${run.name} stage ${stage.stage} attempt ${attempt} succeeded: ${summary}`,
+      );
+    } catch (error) {
+      const permanent = (error as { permanent?: boolean })?.permanent === true;
+      await attemptFailed(run, stage, 'error', message(error), permanent);
+    }
+  }
+
+  async function dispatch(run: Run, stage: Stage) {
+    // Persist the attempt (and its run key) before dispatching, so a crash or lost
+    // response is recovered by finding the run, not by dispatching blindly again.
+    const attempt = await begin(run, stage);
     try {
       const result = await github<{ workflow_run_id?: number }>(
         `/actions/workflows/${WORKFLOW}/dispatches`,
@@ -630,11 +671,17 @@ export function createOrchestrator(options: {
       }
     }
     const before = current.status;
-    if (current.status === 'pending') await dispatch(run, current);
-    else if (current.status === 'retrying') {
-      if (Number(current.next_attempt_at) <= Date.now())
-        await dispatch(run, current);
-    } else if (current.status === 'running') await poll(run, current);
+    const handler = inProcess[current.stage];
+    const due =
+      current.status === 'pending' ||
+      (current.status === 'retrying' &&
+        Number(current.next_attempt_at) <= Date.now());
+    if (handler) {
+      // In-process attempts finish within the tick; `running` here means a restart interrupted one.
+      if (due || current.status === 'running')
+        await execute(run, current, handler);
+    } else if (due) await dispatch(run, current);
+    else if (current.status === 'running') await poll(run, current);
     return (
       current.status !== before &&
       ['success', 'failed', 'skipped'].includes(current.status)
@@ -777,6 +824,7 @@ export function createOrchestrator(options: {
         skippedBy: stage.skipped_by,
         retriedBy: stage.retried_by,
         outcome: stage.stage === 'finalize' ? stage.outcome : null,
+        summary: stage.summary ?? null,
         runUrl: stage.gha_run_id ? runHtmlUrl(stage.gha_run_id) : null,
         steps: parse<{ name: string; status: string }[]>(stage.steps, []),
         attempts: parse<Attempt[]>(stage.attempts, []),

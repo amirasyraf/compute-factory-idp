@@ -54,8 +54,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder`, plus the `mock-rest` and `vms` plugins (Backstage extension points belong to separate plugin IDs).
-  Implements password sign-in, the team policy, `cf:ssh:sign`, `cf:servicenow:create` (a real HTTP POST
-  to the mock REST receiver before the VM run starts), `cf:vm:dispatch` and `cf:vm:run`. The two VM
+  Implements password sign-in, the team policy, `cf:ssh:sign`, `cf:vm:dispatch` and `cf:vm:run`. The two VM
   actions only create an orchestrator run (see **VM orchestrator** below) and finish; they retry
   timeouts and server errors with the same task ID, and both endpoints are idempotent per task, so a
   retry returns the existing run rather than requesting a second VM. GitHub reads use ETag conditional
@@ -66,10 +65,11 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 - **VM orchestrator** (`plugins/cf-backend/src/orchestrator.ts`, served by the `vms` plugin in
   `vms.ts`; contract in the orchestrator repo's `CONTRACTS.md` §8.2). It owns stage order, retries
   and run state in the plugin database; GitHub Actions only executes one platform `stage.yml` stage
-  per dispatch. A 10-second worker dispatches due stages, polls their GitHub run and job steps, and
+  per dispatch, except stages that run inside the IDP itself (today the mock ServiceNow request, the
+  provision run's first stage; see `inProcess` in `vms.ts`). A 10-second worker dispatches due stages, polls their GitHub run and job steps, and
   advances the run: up to 4 attempts per stage with 30 s / 2 min / 8 min backoff, a 45-minute attempt
   deadline, and no automatic retry for permanent failures (the stage's `Validate inputs` step failed,
-  `startup_failure`, or a rejected dispatch). Each attempt is stored with its run key before dispatch,
+  `startup_failure`, a rejected dispatch, or an in-IDP stage's non-transient error). Each attempt is stored with its run key before dispatch,
   so a lost dispatch response is recovered from the run title instead of dispatching again. When a
   stage fails for good, `finalize` records `cf/status: failed` and the run waits for a person:
   **Retry** (fresh attempt budget, then continue) or, for `software` and `ad-join` only, **Skip**.
@@ -301,12 +301,13 @@ mise exec -- node .yarn/releases/yarn-4.13.0.cjs install --immutable
 
 Set `IDP_USERS_B64` in your shell using a throwaway password file for interactive local development.
 There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts temporary local backend and Caddy containers, checks
-readiness/org/locations/templates and the authenticated mock REST action, and stops both; run it with the token
+readiness/org/locations/templates and the mock REST endpoint's authentication, and stops both; run it with the token
 in the environment after the image build. It uses SQLite and a dummy catalog-only
 static token and freshly generated throwaway login; the GitHub integration token is inherited by
-Docker through environment only. It exercises the real Caddy rewrite, backend-to-backend POST,
-HTTP 201 and matching caller/receiver logs, rejected anonymous/catalog-token/user calls, and failed-step
-short-circuiting on HTTP 503, without dispatching GHA. It also runs the existing fixture-API browser
+Docker through environment only. It exercises the real Caddy rewrite to the mock endpoint and its
+rejection of anonymous, catalog-token and user calls, without dispatching GHA. The orchestrator's
+own ServiceNow POST only happens inside a run, which local automation never creates, so that call is
+verified live after deploy. It also runs the existing fixture-API browser
 checks against this local frontend. No production configuration or AWS credentials are needed.
 These checks verify admin/non-admin demo controls and the orchestrator's authenticated read APIs
 against the real local backend/database with automation disabled (no run can be created or
@@ -315,25 +316,24 @@ ServiceNow service; those are checked live after deploy.
 
 ### Mock ServiceNow REST demo
 
-The VM request starts with **Create ServiceNow request (mock)**, before **Start VM pipeline**
-(`cf:vm:dispatch`, which creates the provision run). `cf:servicenow:create` sends VM name/team/platform/OS/size, the authenticated
-requester's entity ref and the task ID to `POST https://idp.amirasyraf.dev/mock-rest/servicenow`.
-Caddy rewrites that exact path to the `mock-rest` plugin's `/api/mock-rest/servicenow` route.
-The receiver returns HTTP 201 with `{number: "RITM…", status: "created", mock: true, requestId}`.
-Task logs show the URL, status and fake number; successful task output repeats the number.
-The number is deterministic for a task ID, but the receiver is stateless: no real ticket, approval,
-record lookup, persistence or provisioning-status update is implemented. Refry/destroy do not call
-this demo endpoint.
+Every provision run starts with the **ServiceNow request** stage, which runs inside the IDP (not in
+GitHub Actions). It sends VM name/team/platform/OS/size, the requester's entity ref and the run's
+request ID to `POST https://idp.amirasyraf.dev/mock-rest/servicenow`. Caddy rewrites that exact path
+to the `mock-rest` plugin's `/api/mock-rest/servicenow` route. The receiver returns HTTP 201 with
+`{number: "RITM…", status: "created", mock: true, requestId}`, and the stage shows
+"RITM… created (mock ServiceNow)" on the run page. The number is deterministic for a request ID, but
+the receiver is stateless: no real ticket, approval, record lookup, persistence or
+provisioning-status update is implemented. Refry/destroy do not call this demo endpoint.
 
-The endpoint accepts only Backstage service credentials from `plugin:scaffolder`; it is not an
-anonymous public webhook. The workflow token is restricted to `catalog` and `vms`, where it can only
-call the read-only demo cleanup check; it still cannot call the mock receiver. No new shared
-secret is needed. The action uses a backend-configured URL constrained to this IDP origin and exact
-mock path, disallows redirects, and aborts after ten seconds or task cancellation. A non-201 or malformed
-response fails the task before the VM run is created. It supports Template Editor dry-runs because it creates no
-persistent resources (the dry-run still makes the real POST). No tokens or full request bodies are logged.
+The endpoint accepts only Backstage service credentials from `plugin:vms`; it is not an anonymous
+public webhook. The workflow token is restricted to `catalog` and `vms`, where it can only call the
+read-only demo cleanup check; it still cannot call the mock receiver. No new shared secret is needed.
+The client uses a backend-configured URL constrained to this IDP origin and exact mock path,
+disallows redirects, and aborts after ten seconds. HTTP 5xx/429, timeouts and network errors are
+retried like any stage; any other non-201 or malformed response fails the stage without retries, so
+no VM is registered. No tokens or full request bodies are logged.
 Local development uses `computeFactory.mockServiceNowUrl` at `http://localhost:7007/api/mock-rest/servicenow`;
-production overrides it with the public HTTPS demo path. The smoke check uses a disposable local Caddy.
+production overrides it with the public HTTPS demo path.
 
 For interactive development:
 

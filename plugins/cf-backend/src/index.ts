@@ -9,7 +9,6 @@ import { ComputeFactoryPolicy } from './policy';
 import { createSshSignAction } from './sign';
 import { authProvidersExtensionPoint } from '@backstage/plugin-auth-node';
 import { passwordProviderFactory } from './auth';
-import { createServiceNowRequestAction } from './servicenow';
 import { createVmDispatchAction, createVmRunAction } from './actions';
 
 export { mockRestPlugin } from './servicenow';
@@ -55,13 +54,11 @@ export const sshModule = createBackendModule({
         actions: scaffolderActionsExtensionPoint,
         catalog: catalogServiceRef,
         auth: coreServices.auth,
-        config: coreServices.rootConfig,
         discovery: coreServices.discovery,
       },
-      async init({ actions, catalog, auth, config, discovery }) {
+      async init({ actions, catalog, auth, discovery }) {
         actions.addActions(
           createSshSignAction(catalog, auth),
-          createServiceNowRequestAction(auth, config),
           createVmDispatchAction(auth, discovery),
           createVmRunAction(auth, discovery),
         );

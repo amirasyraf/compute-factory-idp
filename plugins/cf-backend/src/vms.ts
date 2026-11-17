@@ -7,6 +7,7 @@ import { catalogServiceRef } from '@backstage/plugin-catalog-node';
 import express from 'express';
 import { Caller, Reply, createDemo, initializeDemo } from './demo';
 import { message } from './github';
+import { createServiceNowClient } from './servicenow';
 import {
   FRY_STAGES,
   Run,
@@ -30,6 +31,7 @@ export const vmsPlugin = createBackendPlugin({
     reg.registerInit({
       deps: {
         database: coreServices.database,
+        auth: coreServices.auth,
         scheduler: coreServices.scheduler,
         httpRouter: coreServices.httpRouter,
         httpAuth: coreServices.httpAuth,
@@ -40,6 +42,7 @@ export const vmsPlugin = createBackendPlugin({
       },
       async init({
         database,
+        auth,
         scheduler,
         httpRouter,
         httpAuth,
@@ -54,6 +57,22 @@ export const vmsPlugin = createBackendPlugin({
         const db = await database.getClient();
         await initializeOrchestrator(db);
         await initializeDemo(db);
+        const serviceNow = createServiceNowClient(auth, config);
+        // The provision run's first stage: the (mock) ServiceNow request, made by the IDP itself.
+        const requestServiceNow = async (run: Run) => {
+          const compute =
+            JSON.parse(run.params || '{}')?.spec?.compute ?? ({} as any);
+          const number = await serviceNow({
+            requestId: run.request_id,
+            vmName: run.name,
+            team: run.team,
+            requestedBy: `user:default/${run.requested_by}`,
+            platform: String(compute.platform ?? ''),
+            os: String(compute.os ?? ''),
+            size: String(compute.instanceType ?? compute.size ?? ''),
+          });
+          return `${number} created (mock ServiceNow)`;
+        };
         let queue: Promise<unknown> = Promise.resolve();
         function exclusive<T>(fn: () => Promise<T>): Promise<T> {
           const result = queue.then(fn);
@@ -64,6 +83,7 @@ export const vmsPlugin = createBackendPlugin({
           db,
           logger,
           appBaseUrl: config.getString('app.baseUrl').replace(/\/$/, ''),
+          inProcess: { servicenow: requestServiceNow },
         });
         const vmDemo = createDemo({ db, logger, automation, orchestrator });
 

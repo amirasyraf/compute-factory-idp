@@ -5,7 +5,6 @@ import {
   createBackendPlugin,
 } from '@backstage/backend-plugin-api';
 import { Config } from '@backstage/config';
-import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
 import express from 'express';
 
 const sizePattern = /^([A-Z]{1,4}|[a-z][a-z0-9-]*\.[a-z0-9]+)$/;
@@ -28,10 +27,10 @@ export const mockRestPlugin = createBackendPlugin({
             const credentials = await httpAuth.credentials(req, {
               allow: ['service'],
             });
-            if (credentials.principal.subject !== 'plugin:scaffolder') {
+            if (credentials.principal.subject !== 'plugin:vms') {
               res
                 .status(403)
-                .json({ error: 'Only the Scaffolder may call this mock' });
+                .json({ error: 'Only the VM orchestrator may call this mock' });
               return;
             }
             const body = req.body;
@@ -68,7 +67,7 @@ export const mockRestPlugin = createBackendPlugin({
               res.status(400).json({ error: 'Invalid mock VM request' });
               return;
             }
-            // Stable for retries of the same task; no records are persisted.
+            // Stable for retries of the same request; no records are persisted.
             const suffix = createHash('sha256')
               .update(body.requestId)
               .digest()
@@ -99,10 +98,26 @@ export const mockRestPlugin = createBackendPlugin({
   },
 });
 
-export function createServiceNowRequestAction(
-  auth: AuthService,
-  config: Config,
-) {
+export type ServiceNowRequest = {
+  requestId: string;
+  vmName: string;
+  team: string;
+  requestedBy: string;
+  platform: string;
+  os: string;
+  size: string;
+};
+
+/** An error the orchestrator must not retry automatically. */
+export class PermanentError extends Error {
+  readonly permanent = true;
+}
+
+/**
+ * Client for the mock ServiceNow receiver, used by the orchestrator's in-IDP `servicenow` stage.
+ * HTTP 5xx/429, timeouts and network errors are transient; anything else unexpected is permanent.
+ */
+export function createServiceNowClient(auth: AuthService, config: Config) {
   const url = new URL(config.getString('computeFactory.mockServiceNowUrl'));
   const backendUrl = new URL(config.getString('backend.baseUrl'));
   // Never send a plugin credential to a user-controlled destination or redirect.
@@ -118,82 +133,44 @@ export function createServiceNowRequestAction(
   ) {
     throw new Error('Mock ServiceNow URL must point to this IDP mock endpoint');
   }
-  return createTemplateAction({
-    id: 'cf:servicenow:create',
-    description:
-      'POST VM details to the mock ServiceNow REST endpoint before GHA',
-    // Safe to exercise in Template Editor: the receiver persists no records.
-    supportsDryRun: true,
-    schema: {
-      input: {
-        vmName: z => z.string().regex(/^[a-z][a-z0-9-]{2,20}$/),
-        team: z =>
-          z
-            .string()
-            .min(1)
-            .max(200)
-            .regex(/^[a-zA-Z0-9_./:-]+$/),
-        platform: z => z.enum(['aws']),
-        os: z => z.enum(['ubuntu']),
-        // A size letter (XS-L) or the Advanced picker's explicit instance type.
-        size: z => z.string().regex(sizePattern),
+  return async (body: ServiceNowRequest): Promise<string> => {
+    if (
+      !/^[a-z][a-z0-9-]{2,20}$/.test(body.vmName) ||
+      body.platform !== 'aws' ||
+      body.os !== 'ubuntu' ||
+      !sizePattern.test(body.size)
+    )
+      throw new PermanentError('Invalid VM details for the ServiceNow request');
+    const { token } = await auth.getPluginRequestToken({
+      onBehalfOf: await auth.getOwnServiceCredentials(),
+      targetPluginId: 'mock-rest',
+    });
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
       },
-      output: {
-        number: z => z.string(),
-        httpStatus: z => z.number(),
-      },
-    },
-    async handler(ctx) {
-      const initiator = await ctx.getInitiatorCredentials();
-      if (!auth.isPrincipal(initiator, 'user')) {
-        throw new Error('A signed-in user is required');
-      }
-      const requestId = ctx.task.id;
-      const { token } = await auth.getPluginRequestToken({
-        onBehalfOf: await auth.getOwnServiceCredentials(),
-        targetPluginId: 'mock-rest',
-      });
-      ctx.logger.info(
-        `POST ${url.href} (mock ServiceNow; no real ticket is created)`,
-      );
-      const signal = AbortSignal.timeout(10000);
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ...ctx.input,
-          requestId,
-          requestedBy: initiator.principal.userEntityRef,
-        }),
-        redirect: 'error',
-        signal: ctx.signal ? AbortSignal.any([signal, ctx.signal]) : signal,
-      });
-      if (response.status !== 201) {
-        throw new Error(
-          `Mock ServiceNow returned HTTP ${response.status}; VM pipeline not started`,
-        );
-      }
-      const result = await response.json();
-      if (
-        !result ||
-        result.mock !== true ||
-        result.status !== 'created' ||
-        result.requestId !== requestId ||
-        typeof result.number !== 'string' ||
-        !/^RITM\d{10}$/.test(result.number)
-      ) {
-        throw new Error(
-          'Invalid mock ServiceNow response; VM pipeline not started',
-        );
-      }
-      ctx.logger.info(
-        `HTTP 201 Created — mock ServiceNow request ${result.number} accepted for ${ctx.input.vmName}`,
-      );
-      ctx.output('number', result.number);
-      ctx.output('httpStatus', response.status);
-    },
-  });
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.timeout(10000),
+    });
+    if (response.status !== 201) {
+      const failure = `Mock ServiceNow returned HTTP ${response.status}`;
+      if (response.status >= 500 || response.status === 429)
+        throw new Error(failure);
+      throw new PermanentError(failure);
+    }
+    const result = await response.json().catch(() => undefined);
+    if (
+      !result ||
+      result.mock !== true ||
+      result.status !== 'created' ||
+      result.requestId !== body.requestId ||
+      typeof result.number !== 'string' ||
+      !/^RITM\d{10}$/.test(result.number)
+    )
+      throw new PermanentError('Invalid mock ServiceNow response');
+    return result.number;
+  };
 }
