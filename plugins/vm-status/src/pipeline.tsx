@@ -145,11 +145,15 @@ const useStyles = makeStyles({
     display: 'grid',
     gridTemplateColumns: `repeat(${STATIONS.length}, minmax(0, 1fr))`,
     minWidth: 0,
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
     margin: 0,
     padding: 0,
     listStyle: 'none',
   },
   station: {
+    minWidth: 0,
     position: 'relative',
     textAlign: 'center',
     fontSize: 10.5,
@@ -255,13 +259,12 @@ const useStyles = makeStyles({
   large: {
     fontSize: 12.5,
     paddingTop: 26,
-    color: vmColors.mute,
   },
   // Narrow screens keep only the label that matters: the running or failed stop.
   '@media (max-width: 600px)': {
-    label: { visibility: 'hidden' },
-    current: { '& $label': { visibility: 'visible', overflow: 'visible' } },
-    failed: { '& $label': { visibility: 'visible', overflow: 'visible' } },
+    label: { visibility: 'hidden', fontSize: 10 },
+    current: { '& $label': { visibility: 'visible' } },
+    failed: { '& $label': { visibility: 'visible' } },
   },
   srOnly: {
     position: 'absolute',

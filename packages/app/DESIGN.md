@@ -99,9 +99,9 @@ surfaces remain visible and do not all use the transit-line grammar.
 - Flat white surfaces, light dividers, restrained rounding and state-bearing colour.
 - Light-only, applied through supported Backstage extensions and unified theming.
 
-This document is based on source inspection. It does not claim fresh browser,
-accessibility, deployment or real-workflow verification. Only this file is part of
-the documentation deliverable; no design sidecar is generated.
+This document records the source-defined system. Local fixture screenshots and
+browser smoke cover the run and entity presentation at desktop/mobile widths;
+they do not establish accessibility conformance, deployed behavior or real-workflow success.
 
 ## Colors
 
@@ -203,6 +203,9 @@ The VM header uses `20px 20px 0` padding. Content and information cards stack wi
 24px gaps; where info cards exist, a wide-screen two-column layout gives content
 twice the info-column width. Access/configuration facts use auto-filling columns
 with a 180px minimum and `12px 24px` gaps.
+Standalone run pages use a focused, fluid 1120px maximum-width canvas, with 20px
+gutters (16px on mobile). Run headings, links, status and actions wrap rather than
+expanding the page. Entity facts can shrink below 180px on narrow cards.
 
 ### Implemented responsive boundaries
 
@@ -274,6 +277,8 @@ the process status:
 The last station keeps its small-radius cap rule, including if its status changes;
 the skipped variant still supplies tick dimensions. Small lines reserve 22px above the label;
 large lines reserve 26px. Dot and track dimensions are identical at both sizes.
+The line and each grid station explicitly shrink to their container; labels truncate
+within their station even on mobile (10px labels), so the last stop cannot be pushed off-card.
 Large is used by the VM card, small by home and Resources. Labels ellipsize rather
 than wrapping. Resources always requests screen-reader-only labels; home/card
 labels follow the 600px rule. Each item retains a text status and title tooltip.
@@ -352,7 +357,7 @@ name, favourite star, team, OS/platform, lifecycle and inventory-source link.
 Section tabs appear only when there is more than one; otherwise a spacer is used.
 The stock About card is hidden only for VMs, whose content cards precede info
 cards. The VM pipeline card contains the latest run (`/runs?name=<vm>&limit=1`, checked
-about every five seconds), the reusable run detail view, last catalog-check note,
+about every five seconds), a compact run summary, last catalog-check note,
 Access and Desired configuration. Catalog facts refresh every ten seconds, including
 after terminal runs, to discover later destruction. SSH certificate, orchestrator run, prefilled refry and destroy
 links remain reachable. Ready promotes certificate access; failed promotes the
@@ -361,19 +366,38 @@ While destroying, only the destroy run link remains (promoted) and the `ssh`
 command is hidden. Once a refresh finds the entity gone, the card becomes a
 terminal "Destroyed" notice with the run link and Back to Resources; it is not
 claimed until the catalog no longer returns the entity.
-
-### Stock and owned boundaries; known limitations
+The compact run summary shows its kind/number and status chip, requester/team,
+the line, the current or failed stage and its inline error, permitted Retry/Skip
+controls, and a View run details link. It deliberately has no stage list, job
+steps or attempt history; those belong on the run page, keeping Access and
+Desired configuration close to the top of the card.
 
 ### VM run page
 
 `/vms/runs/<id>` is a standalone page under the `vm-status` plugin's `/vms`
 page extension. It fetches the run without a catalog lookup, so registration may
 still be pending. The catalog link is navigation, not a readiness assertion.
-The reusable view shows kind, VM, requester/team, run status and timestamps,
-errors, the ordered line and stage rows. Rows include attempt/budget, retry
-countdown, stage times/outcome, current GitHub attempt, expandable job steps,
-earlier attempts and manual retry/skip attribution. Failed stage work is not
-silently relabelled complete.
+The header shows kind/VM, a colored status chip and one muted line containing
+requester, team, short start time and elapsed duration. Full start time is a
+tooltip; links occupy a consistent separate header group. Retry/Skip sit above
+the pipeline card when permitted.
+The page extension suppresses the generic plugin banner; the run heading is the
+only page title. Terminal stage durations fall back to the run's finish time when
+cancellation did not record an individual stage finish.
+
+Each stage is a compact ruled row: colored dot and label, brief description for
+work performed/in progress, human status and a right-aligned duration. Mobile
+places status below the label and keeps duration at the right. The attempt budget
+appears only for retries/history. Pending stages show Waiting; automatic skips
+show Not needed, with no placeholder timestamps, zero-attempt counters or empty
+job details. Retry countdowns read e.g. Retrying in 1m 20s. Manual skips name the
+user and never imply the work was completed.
+
+A stage that actually ran has one named details expander containing a clearly
+labelled GitHub attempt link, job steps with status symbols, earlier attempts,
+outcome and manual attribution. Failed/retrying errors remain visible in red
+without expanding. Ordinary rows never expose raw timestamp blocks. Run/stage
+duration clocks tick only while the run is active.
 
 The standalone view polls `/runs/:id` about every five seconds only while running;
 terminal runs stop polling. Successful actions replace the view with the returned
@@ -382,12 +406,12 @@ action flags permit them. Skip requires confirmation that work will not be appli
 and the desired spec will not change. Both controls disable while a request is
 pending; API `{error}` text is shown inline. Read failures show an explicit retry
 control on initial load, or an error with continued polling during an active run.
-The entity card uses the same view without a duplicate per-ID polling loop.
+The entity card uses the compact variant without a duplicate per-ID polling loop.
 
 Demo controls and the compute picker's restrictions discover `vms`, using
 `/demo/state` and `/demo/settings`; their existing response shapes are unchanged.
 
-### Boundaries
+### Stock and owned boundaries; known limitations
 
 - **Owned:** theme/BUI browser surfaces, top-bar layout/navigation/mark, home,
   Resources shell and VM columns, kind picker override, VM header/content/card,

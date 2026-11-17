@@ -2,6 +2,8 @@
 // workflow dispatches, VM creation or backend writes. Run against local or deployed UI.
 import { setTimeout as delay } from 'node:timers/promises';
 import { chromium, expect } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 const base = process.env.WORKFLOW_UI_URL;
 if (!base) throw new Error('Set WORKFLOW_UI_URL to the frontend URL');
@@ -19,7 +21,12 @@ const vm = {
     name: 'spec-vm',
     namespace: 'default',
     uid: 'spec-vm-fixture',
-    annotations: { 'cf/status': 'ready', 'cf/instance-type': 't3.medium' },
+    annotations: {
+      'cf/status': 'ready',
+      'cf/instance-type': 't3.medium',
+      'cf/public-ip': '203.0.113.42',
+      'cf/ssh-user': 'ubuntu',
+    },
   },
   spec: {
     type: 'vm',
@@ -61,17 +68,22 @@ const task = {
 const stage = (id, status, steps = []) => ({
   id,
   status,
-  attempt: status === 'pending' ? 0 : 1,
+  attempt: ['pending', 'skipped'].includes(status) ? 0 : 1,
   maxAttempts: 4,
   nextAttemptAt: null,
-  startedAt: null,
-  finishedAt: null,
+  startedAt: ['pending', 'skipped'].includes(status)
+    ? null
+    : new Date(Date.now() - 125000).toISOString(),
+  finishedAt:
+    status === 'success' ? new Date(Date.now() - 65000).toISOString() : null,
   error: null,
   skippable: ['software', 'ad-join'].includes(id),
   skippedBy: null,
   retriedBy: null,
   outcome: null,
-  runUrl: 'https://github.com/example/platform/actions/runs/123',
+  runUrl: ['pending', 'skipped'].includes(status)
+    ? null
+    : 'https://github.com/example/platform/actions/runs/123',
   steps,
   attempts: [],
 });
@@ -93,8 +105,8 @@ let snapshot = {
   team: 'alpha',
   requestId: 'fixture-request',
   requestedBy: 'user:default/amirasyraf',
-  createdAt: '2026-11-15T00:00:00Z',
-  updatedAt: '2026-11-15T00:00:00Z',
+  createdAt: new Date(Date.now() - 360000).toISOString(),
+  updatedAt: new Date().toISOString(),
   finishedAt: null,
   error: null,
   status: 'running',
@@ -109,7 +121,7 @@ let snapshot = {
     ]),
     stage('baseline', 'pending'),
     stage('software', 'pending'),
-    stage('ad-join', 'pending'),
+    stage('ad-join', 'skipped'),
     stage('access', 'pending'),
     stage('finalize', 'pending'),
   ],
@@ -120,6 +132,45 @@ try {
     viewport: { width: 1440, height: 1000 },
   });
   const errors = [];
+  const screenshotDir = process.env.WORKFLOW_UI_SCREENSHOTS;
+  async function capture(name) {
+    if (!screenshotDir) return;
+    await mkdir(screenshotDir, { recursive: true });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({
+        width,
+        height: width === 1440 ? 1100 : 1400,
+      });
+      await page.evaluate(() => document.fonts.ready);
+      await assertLineFits();
+      await page.screenshot({
+        path: path.join(screenshotDir, `${name}-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+  }
+  async function assertLineFits() {
+    const fits = await page.getByLabel('Pipeline stages').evaluateAll(lines =>
+      lines.every(line => {
+        const box = line.getBoundingClientRect();
+        const parent = line.parentElement.getBoundingClientRect();
+        const withinViewport =
+          window.location.pathname === '/catalog' ||
+          (box.left >= -1 && box.right <= window.innerWidth + 1);
+        return (
+          withinViewport &&
+          box.width <= parent.width + 1 &&
+          [...line.children].every(station => {
+            const r = station.getBoundingClientRect();
+            return r.left >= box.left - 1 && r.right <= box.right + 1;
+          })
+        );
+      }),
+    );
+    if (!fits) throw new Error('Pipeline stations overflow their container');
+  }
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
@@ -141,6 +192,8 @@ try {
           },
         },
       };
+    } else if (path.endsWith('/user-settings/multiget')) {
+      json = { items: [] };
     } else if (path.endsWith('/authorize')) {
       json = {
         items: (route.request().postDataJSON()?.items ?? []).map(item => ({
@@ -403,57 +456,79 @@ try {
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   const runView = page.getByRole('region', { name: 'VM run 42', exact: true });
   await expect(runView).toBeVisible();
-  await expect(runView.getByText('running', { exact: true })).toHaveCount(2);
-  await runView.locator('details').nth(1).locator('summary').click();
+  await expect(runView.getByText('In progress', { exact: true })).toHaveCount(
+    2,
+  );
+  await expect(runView.getByText('Attempt 0/4')).toHaveCount(0);
+  await expect(runView.getByText('Job steps (0)')).toHaveCount(0);
+  await expect(runView.getByText('Not needed', { exact: true })).toBeVisible();
+  await assertLineFits();
+  await capture('run-running');
+  await runView.getByText('Provision details', { exact: true }).click();
   await expect(
-    runView.getByText('Terraform apply · in_progress'),
+    runView.getByText('Terraform apply', { exact: false }),
   ).toBeVisible();
   await expect(
-    runView.getByRole('link', { name: 'Open VM in catalog' }),
+    runView.getByRole('link', { name: /Open VM in catalog/ }),
   ).toHaveAttribute('href', '/catalog/default/resource/spec-vm');
+  await runView.getByText('Provision details', { exact: true }).click();
   snapshot = {
     ...snapshot,
-    stages: snapshot.stages.map(s =>
-      s.id === 'software'
-        ? {
-            ...s,
-            status: 'retrying',
-            attempt: 2,
-            nextAttemptAt: new Date(Date.now() + 120000).toISOString(),
-            error: 'Package mirror unavailable',
-            attempts: [
-              {
-                attempt: 1,
-                runUrl: s.runUrl,
-                conclusion: 'failure',
-                error: 'First failure',
-                finishedAt: snapshot.updatedAt,
-              },
-            ],
-          }
-        : s,
-    ),
+    stages: snapshot.stages.map(s => {
+      if (s.id === 'software')
+        return {
+          ...s,
+          status: 'retrying',
+          attempt: 3,
+          startedAt: new Date(Date.now() - 80000).toISOString(),
+          runUrl: 'https://github.com/example/platform/actions/runs/456',
+          nextAttemptAt: new Date(Date.now() + 120000).toISOString(),
+          error: 'Package mirror unavailable',
+          attempts: [
+            {
+              attempt: 1,
+              runUrl: 'https://github.com/example/platform/actions/runs/123',
+              conclusion: 'failure',
+              error: 'First failure',
+              finishedAt: snapshot.updatedAt,
+            },
+          ],
+        };
+      if (['provision', 'baseline'].includes(s.id))
+        return stage(s.id, 'success');
+      return s;
+    }),
   };
-  await expect(runView.getByText(/^Retry in \d+s/)).toBeVisible({
+  await expect(runView.getByText(/^Retrying in \d+m \d+s/)).toBeVisible({
     timeout: 10000,
   });
-  await runView.getByText('Earlier attempts (1)', { exact: true }).click();
+  await capture('run-retrying');
+  await runView.getByText('Software details', { exact: true }).click();
+  await expect(
+    runView.getByText('Earlier attempts (1)', { exact: true }),
+  ).toBeVisible();
   await expect(
     runView.getByText('First failure', { exact: true }),
   ).toBeVisible();
+  await capture('run-expanded');
+  await runView.getByText('Software details', { exact: true }).click();
   snapshot = {
     ...snapshot,
     status: 'failed',
     error: 'Software failed',
+    finishedAt: new Date().toISOString(),
     actions: { retry: true, skip: true },
     stages: snapshot.stages.map(s =>
-      s.id === 'software' ? { ...s, status: 'failed' } : s,
+      s.id === 'software'
+        ? { ...s, status: 'failed', finishedAt: new Date().toISOString() }
+        : s,
     ),
   };
   await expect(
     runView.getByRole('button', { name: 'Retry', exact: true }),
-  ).toBeVisible({ timeout: 10000 });
+  ).toBeVisible({ timeout: 15000 });
   const stoppedReads = runReads;
+  await capture('run-failed');
   await page.waitForTimeout(5500);
   if (runReads !== stoppedReads) throw new Error('Terminal run kept polling');
   actionError = true;
@@ -482,7 +557,7 @@ try {
     .getByRole('button', { name: 'Skip stage', exact: true })
     .click();
   await expect(
-    runView.getByText(/Skipped by user:default\/amirasyraf/),
+    runView.getByText('Skipped by amirasyraf', { exact: true }),
   ).toBeVisible();
   snapshot = {
     ...snapshot,
@@ -493,26 +568,34 @@ try {
     runView.getByRole('button', { name: 'Retry', exact: true }),
   ).toBeVisible({ timeout: 10000 });
   await runView.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(
-    runView.getByText('Retried by user:default/amirasyraf'),
-  ).toBeVisible();
+  await runView.getByText('Software details', { exact: true }).click();
+  await expect(runView.getByText('Retried by amirasyraf')).toBeVisible();
+  await runView.getByText('Software details', { exact: true }).click();
   snapshot = {
     ...snapshot,
     status: 'succeeded',
     error: null,
-    finishedAt: snapshot.updatedAt,
+    finishedAt: new Date().toISOString(),
     stages: snapshot.stages.map(s => ({
       ...s,
-      status: 'success',
+      status: s.id === 'ad-join' ? 'skipped' : 'success',
+      attempt: s.id === 'ad-join' ? 0 : Math.max(s.attempt, 1),
+      startedAt:
+        s.id === 'ad-join'
+          ? null
+          : s.startedAt ?? new Date(Date.now() - 30000).toISOString(),
+      finishedAt: s.id === 'ad-join' ? null : new Date().toISOString(),
       error: null,
     })),
   };
-  await expect(runView.getByText('succeeded', { exact: true })).toBeVisible({
-    timeout: 10000,
-  });
+  await expect(runView.getByRole('status', { name: 'Run status' })).toHaveText(
+    'Completed',
+    { timeout: 15000 },
+  );
   await expect(
     runView.getByRole('button', { name: 'Retry', exact: true }),
   ).toHaveCount(0);
+  await capture('run-succeeded');
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(runView).toBeVisible();
   if (
@@ -527,8 +610,28 @@ try {
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
   const succeeded = snapshot;
+  const cancelledAt = new Date(Date.now() - 60000).toISOString();
   snapshot = {
-    ...snapshot,
+    ...succeeded,
+    status: 'cancelled',
+    finishedAt: cancelledAt,
+    updatedAt: cancelledAt,
+    stages: [
+      stage('register', 'success'),
+      {
+        ...stage('provision', 'cancelled'),
+        startedAt: new Date(Date.parse(cancelledAt) - 60000).toISOString(),
+        finishedAt: null,
+      },
+    ],
+  };
+  await page.reload();
+  await expect(
+    page.getByLabel('Run stages').getByText('1m 0s', { exact: true }),
+  ).toHaveCount(2);
+  await capture('run-cancelled');
+  snapshot = {
+    ...succeeded,
     kind: 'refry',
     stages: [
       stage('configure', 'skipped'),
@@ -539,7 +642,7 @@ try {
   await page.reload();
   await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(3);
   snapshot = {
-    ...snapshot,
+    ...succeeded,
     kind: 'destroy',
     stages: [stage('destroy', 'success'), stage('finalize', 'skipped')],
   };
@@ -565,6 +668,8 @@ try {
     page.getByRole('columnheader', { name: 'Pipeline' }),
   ).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
+  await assertLineFits();
+  await capture('resources');
   if (!summaryReads) throw new Error('Catalog did not load run summary');
   if (latestReads) throw new Error('List performed per-VM latest-run requests');
   await expect(
@@ -601,13 +706,40 @@ try {
   console.log(
     'CATALOG UI PASS: own header, VM state/pipeline columns, Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
   );
-  snapshot = { ...succeeded, status: 'running' };
+  snapshot = {
+    ...succeeded,
+    status: 'running',
+    finishedAt: null,
+    stages: succeeded.stages.map(s =>
+      s.id === 'software' ? { ...s, status: 'running', finishedAt: null } : s,
+    ),
+  };
   const beforeEntity = runReads;
   await page.goto(`${base}/catalog/default/resource/spec-vm`);
   await expect(
     page.getByRole('heading', { name: 'Desired configuration' }),
   ).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
+  await expect(page.getByLabel('Run stages')).toHaveCount(0);
+  await expect(
+    page.getByRole('link', { name: /View run details/ }),
+  ).toBeVisible();
+  await capture('entity-running');
+  snapshot = {
+    ...snapshot,
+    status: 'failed',
+    actions: { retry: true, skip: true },
+    error: 'Software could not be installed',
+    stages: snapshot.stages.map(s =>
+      s.id === 'software'
+        ? { ...s, status: 'failed', error: 'Package mirror unavailable' }
+        : s,
+    ),
+  };
+  await expect(
+    page.getByRole('button', { name: 'Retry', exact: true }),
+  ).toBeVisible({ timeout: 10000 });
+  await capture('entity-failed');
   await expect(page.getByText('aws / ubuntu', { exact: true })).toBeVisible();
   await expect(page.getByText('git, nginx', { exact: true })).toBeVisible();
   await expect(
@@ -660,6 +792,8 @@ try {
   ).toBeVisible();
   const row = page.getByRole('row', { name: /spec-vm/ });
   await expect(row.getByLabel('Pipeline stages')).toBeVisible();
+  await assertLineFits();
+  await capture('home');
   await expect(
     row.locator('[title="M · t3.medium · 2 vCPU · 4 GiB · x86_64"]'),
   ).toHaveCount(1);

@@ -19,7 +19,7 @@ const useStyles = makeStyles(theme => ({
   },
   state: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
   activity: { color: vmColors.mute, fontSize: 13, marginTop: 2 },
-  note: { color: vmColors.mute, fontSize: 12.5 },
+  note: { color: vmColors.mute, fontSize: 12.5, marginTop: 6 },
   error: { color: vmColors.redText, fontSize: 13, marginTop: 8 },
   section: {
     marginTop: theme.spacing(3),
@@ -33,7 +33,7 @@ const useStyles = makeStyles(theme => ({
   },
   facts: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))',
     gap: '12px 24px',
     margin: 0,
     '& dt': { fontSize: 12, color: vmColors.mute },
@@ -48,6 +48,9 @@ const useStyles = makeStyles(theme => ({
     borderRadius: 6,
     padding: '6px 10px',
     marginTop: 4,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    overflowWrap: 'anywhere',
   },
   actions: {
     display: 'flex',
@@ -198,24 +201,28 @@ export function VmStatusCard() {
 
   return (
     <InfoCard title="VM pipeline">
-      <div className={classes.head}>
-        <div>
-          <div
-            className={classes.state}
-            style={{ color: state === 'failed' ? vmColors.redText : undefined }}
-          >
-            {overallStatus}
-          </div>
-          <div className={classes.activity}>
-            {destroying
-              ? 'Removing this VM; checking until it leaves the catalog.'
-              : 'Latest orchestrator run'}
+      {!run && (
+        <div className={classes.head}>
+          <div>
+            <div
+              className={classes.state}
+              style={{
+                color: state === 'failed' ? vmColors.redText : undefined,
+              }}
+            >
+              {overallStatus}
+            </div>
+            <div className={classes.activity}>
+              {destroying
+                ? 'Removing this VM; checking until it leaves the catalog.'
+                : 'Latest orchestrator run'}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {run ? (
-        <VmRunView initialRun={run} poll={false} />
+        <VmRunView initialRun={run} poll={false} compact onRunChange={setRun} />
       ) : (
         <p>
           No run known. Catalog status: {annotations['cf/status'] ?? 'unknown'}.
@@ -226,8 +233,18 @@ export function VmStatusCard() {
           Run updates unavailable: {runError}
         </p>
       )}
-      <div className={classes.note}>
-        {refreshNote} Last checked {lastRefreshed.toLocaleTimeString()}.
+      <div className={classes.note} title={refreshNote}>
+        Catalog checked{' '}
+        <time
+          dateTime={lastRefreshed.toISOString()}
+          title={lastRefreshed.toLocaleString()}
+        >
+          {lastRefreshed.toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </time>{' '}
+        · Live updates
       </div>
       {error && <div className={classes.error}>{error}</div>}
 

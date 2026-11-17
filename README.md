@@ -9,13 +9,15 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   `Resource` / `spec.type: vm`. All run data comes from the `vms` backend API (`runs.ts`), never from a
   browser GitHub token.
   - **Run page** `/vms/runs/<id>` (`RunView.tsx`, a `PageBlueprint`): run header (kind, VM, status,
-    requester, times, error) and the run's stages in order, each with status, attempt `n/max`, a retry
-    countdown, error, link to the GitHub run of the current or last attempt, expandable job steps,
+    requester, short start time, elapsed duration, error) and compact ordered stage rows with a status
+    dot, human status and duration. Retry attempts show their budget and countdown; failed/retrying
+    errors stay visible. Stages that ran have one details expander with the GitHub attempt, job steps,
     earlier attempts, and `skippedBy`/`retriedBy`. **Retry** and **Skip** appear only when the API's
     `actions` allow them; Skip asks for confirmation and says the stage's work will not be applied.
     It polls every 5 seconds while the run is running and works before the VM's catalog entity exists,
     which is why VM templates link here.
-  - **VM card**: the VM's latest run (same view, polled while running), access facts, SSH command and
+  - **VM card**: a compact latest-run summary (line, current/failed stage, permitted retry/skip and
+    View run details link; no full stage list), refreshed every five seconds, access facts, SSH command and
     links to certificate, refry and destroy. With no known run it falls back to `cf/status`. When a
     refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
   - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Desired
@@ -374,6 +376,8 @@ fails if the page opens `/eventstream`. Against a built (hashed) frontend it als
 and checks that the new-version banner appears; on the dev server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state.
+Set `WORKFLOW_UI_SCREENSHOTS` to a temporary directory to capture run states, entity cards and lists
+at 1440px and 390px widths during the same fixture smoke. Inspect the images, then delete the directory.
 `scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's
 gitignored `.poc-passwords`) and checks, read-only, the request form's live instance types and AWS
 specs, that the newest own task page receives events by long polling, and that the newest visible VM

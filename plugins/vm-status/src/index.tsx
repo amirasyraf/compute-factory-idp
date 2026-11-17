@@ -56,6 +56,7 @@ export default createFrontendPlugin({
       name: 'runs',
       params: {
         path: '/vms',
+        noHeader: true,
         routeRef: createRouteRef(),
         loader: async () => import('./RunView').then(m => <m.VmRunsPage />),
       },
