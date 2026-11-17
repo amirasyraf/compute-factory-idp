@@ -84,8 +84,8 @@ export function DemoModePanel() {
   const [now, setNow] = useState(Date.now());
   const load = useCallback(
     async (signal?: AbortSignal) => {
-      const base = await discovery.getBaseUrl('demo-mode');
-      const response = await fetchApi.fetch(`${base}/state`, { signal });
+      const base = await discovery.getBaseUrl('vms');
+      const response = await fetchApi.fetch(`${base}/demo/state`, { signal });
       if (!response.ok)
         throw new Error(`Demo settings HTTP ${response.status}`);
       const data = await response.json();
@@ -118,8 +118,8 @@ export function DemoModePanel() {
     if (!state || confirm === undefined) return;
     setBusy(true);
     try {
-      const base = await discovery.getBaseUrl('demo-mode');
-      const response = await fetchApi.fetch(`${base}/settings`, {
+      const base = await discovery.getBaseUrl('vms');
+      const response = await fetchApi.fetch(`${base}/demo/settings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

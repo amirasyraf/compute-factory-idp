@@ -2,75 +2,75 @@
 name: Compute Factory
 description: A light-only Backstage developer platform whose VM build pipeline is a transit line.
 colors:
-  ink: "#111316"
-  mute: "#5D636B"
-  faint: "#8A9098"
-  rule: "#E3E5E8"
-  surface: "#F3F4F5"
-  white: "#FFFFFF"
-  blue: "#0B5FD3"
-  blueDark: "#0A4FB0"
-  green: "#00935A"
-  red: "#E8402E"
-  redText: "#C2321F"
-  grey: "#9AA0A7"
-  track: "#D5D8DC"
-  station-border: "#C9CDD2"
-  bui-border-2: "#d2d5d9"
-  retired-label: "#B0B5BB"
-  failed-row: "#FEF6F5"
-  warning: "#B26B00"
+  ink: '#111316'
+  mute: '#5D636B'
+  faint: '#8A9098'
+  rule: '#E3E5E8'
+  surface: '#F3F4F5'
+  white: '#FFFFFF'
+  blue: '#0B5FD3'
+  blueDark: '#0A4FB0'
+  green: '#00935A'
+  red: '#E8402E'
+  redText: '#C2321F'
+  grey: '#9AA0A7'
+  track: '#D5D8DC'
+  station-border: '#C9CDD2'
+  bui-border-2: '#d2d5d9'
+  retired-label: '#B0B5BB'
+  failed-row: '#FEF6F5'
+  warning: '#B26B00'
 typography:
   regular:
     fontFamily: '"Schibsted Grotesk Variable", "Schibsted Grotesk", system-ui, sans-serif'
   page-title:
-    fontSize: "32px"
+    fontSize: '32px'
     fontWeight: 700
     lineHeight: 1.1
-    letterSpacing: "-0.025em"
+    letterSpacing: '-0.025em'
   backstage-title:
-    fontSize: "30px"
+    fontSize: '30px'
     fontWeight: 700
-    letterSpacing: "-0.025em"
+    letterSpacing: '-0.025em'
   card-title:
-    fontSize: "18px"
+    fontSize: '18px'
     fontWeight: 700
   table-heading:
-    fontSize: "11px"
+    fontSize: '11px'
     fontWeight: 600
-    letterSpacing: "0.07em"
+    letterSpacing: '0.07em'
   ssh-command:
     fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace'
   station-small:
-    fontSize: "10.5px"
+    fontSize: '10.5px'
     lineHeight: 1.3
   station-large:
-    fontSize: "12.5px"
+    fontSize: '12.5px'
     lineHeight: 1.3
 rounded:
-  chip: "4px"
-  control: "6px"
-  paper: "8px"
+  chip: '4px'
+  control: '6px'
+  paper: '8px'
 components:
   button-primary:
-    backgroundColor: "{colors.blue}"
-    textColor: "{colors.white}"
-    rounded: "{rounded.control}"
+    backgroundColor: '{colors.blue}'
+    textColor: '{colors.white}'
+    rounded: '{rounded.control}'
   button-primary-hover:
-    backgroundColor: "{colors.blueDark}"
+    backgroundColor: '{colors.blueDark}'
   button-secondary:
-    backgroundColor: "{colors.white}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.control}"
+    backgroundColor: '{colors.white}'
+    textColor: '{colors.ink}'
+    rounded: '{rounded.control}'
   software-chip:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.chip}"
+    backgroundColor: '{colors.surface}'
+    textColor: '{colors.ink}'
+    rounded: '{rounded.chip}'
   search-trigger:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.mute}"
-    rounded: "{rounded.control}"
-    height: "34px"
+    backgroundColor: '{colors.surface}'
+    textColor: '{colors.mute}'
+    rounded: '{rounded.control}'
+    height: '34px'
 ---
 
 # Design System: Compute Factory
@@ -93,7 +93,8 @@ direction lives in `.impeccable/surfaces/src-app-tsx.md`. Existing Backstage plu
 surfaces remain visible and do not all use the transit-line grammar.
 
 **Key Characteristics:**
-- A shared eight-station line on home, Resources and VM pages.
+
+- A shared run-specific stage line on home, Resources, VM and run pages.
 - Dense, legible operational information with explicit state text and next actions.
 - Flat white surfaces, light dividers, restrained rounding and state-bearing colour.
 - Light-only, applied through supported Backstage extensions and unified theming.
@@ -205,13 +206,13 @@ with a 180px minimum and `12px 24px` gaps.
 
 ### Implemented responsive boundaries
 
-| Boundary | Actual effect |
-| --- | --- |
-| At or below 600px | Pipeline labels are visually hidden except running/failed stations; the line remains eight columns. |
-| At or below 760px | Home/Resources padding becomes `24px 16px 40px`; home counts shrink. Top bar tightens padding/gaps, hides the brand wordmark, Search navigation tab and duplicate settings icon; avatar settings access and search trigger remain. |
-| At or below 1000px | Home table header disappears; each VM becomes a stacked block, pipeline width becomes fluid, and the action aligns left. |
-| At or below 1100px | Top-bar search trigger becomes a 34px icon square and profile name/team text disappears. |
-| At or above 1100px | VM content with info cards uses a `2fr / 1fr` split. Exactly 1100px also meets the top-bar compact rule above. |
+| Boundary           | Actual effect                                                                                                                                                                                                                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| At or below 600px  | Pipeline labels are visually hidden except running/retrying/failed stations; columns follow the run's stage list.                                                                                                                  |
+| At or below 760px  | Home/Resources padding becomes `24px 16px 40px`; home counts shrink. Top bar tightens padding/gaps, hides the brand wordmark, Search navigation tab and duplicate settings icon; avatar settings access and search trigger remain. |
+| At or below 1000px | Home table header disappears; each VM becomes a stacked block, pipeline width becomes fluid, and the action aligns left.                                                                                                           |
+| At or below 1100px | Top-bar search trigger becomes a 34px icon square and profile name/team text disappears.                                                                                                                                           |
+| At or above 1100px | VM content with info cards uses a `2fr / 1fr` split. Exactly 1100px also meets the top-bar compact rule above.                                                                                                                     |
 
 Above its stacking breakpoint, the home table has a 1080px minimum width and an
 overflow wrapper; its pipeline is 520px wide. The Resources pipeline cell stays
@@ -252,22 +253,23 @@ stops are ticks, not smaller dots or completed stops.
 
 ### PipelineLine: shared transit grammar
 
-An ordered list, labelled "Pipeline stages", distributes **eight equal stations**:
-Validate → Register → Provision → Baseline → Software → AD join → Access → Finalize.
-Failure handling (`on-failure`) is a separate process, not a ninth station. Bake is
-not an extra station either; home's heading mentions the baked image before fry.
+An ordered list, labelled "Pipeline stages", distributes the run's ordered stages equally.
+Provision has seven stations: Register → Provision → Baseline → Software → AD join → Access → Finalize.
+Refry shows Configure (skipped when not applicable), the selected stage and Finalize;
+destroy shows Destroy and Finalize. Skipped not-applicable stages remain visible. Bake is not a station.
 
 Each station owns its arriving segment; the first has none. Geometry communicates
 the process status:
 
-| Process status | Station and arriving track |
-| --- | --- |
-| `pending` / Waiting | White-centred 12px stop with a 2px neutral border; 2px neutral track. |
-| `success` / Completed | White-centred 12px stop with a 3px blue border; 5px blue track; ink label. |
-| `running` / In progress | 16px white-centred stop with a 4px blue border, animated halo, bold blue label and 5px blue arriving track. |
-| `failed` / Failed | 16px filled red stop with a white cross, bold failure-text label; arriving track stays 5px blue. |
-| `skipped` / Skipped | A 2px-wide, 13px-high blue non-stop tick with an italic faint label and 5px blue track. Tooltip says "Skipped (not requested)". |
-| `retired` presentation | Overrides all process variants: grey 5px track, neutral outlined stops and retired labels. Used for destroying VMs, not evidence of completed destruction. |
+| Process status                                 | Station and arriving track                                                                                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pending` / Waiting                            | White-centred 12px stop with a 2px neutral border; 2px neutral track.                                                                                      |
+| `success` / Completed                          | White-centred 12px stop with a 3px blue border; 5px blue track; ink label.                                                                                 |
+| `running` / In progress, `retrying` / Retrying | 16px white-centred stop with a 4px blue border, animated halo, bold blue label and 5px blue arriving track.                                                |
+| `failed` / Failed                              | 16px filled red stop with a white cross, bold failure-text label; arriving track stays 5px blue.                                                           |
+| `skipped` / Skipped                            | A 2px-wide, 13px-high blue non-stop tick with an italic faint label and 5px blue track. Tooltip says "Skipped (not applied)".                              |
+| `cancelled` / Cancelled                        | Neutral stop and track; explicit cancelled text.                                                                                                           |
+| `retired` presentation                         | Overrides all process variants: grey 5px track, neutral outlined stops and retired labels. Used for destroying VMs, not evidence of completed destruction. |
 
 The last station keeps its small-radius cap rule, including if its status changes;
 the skipped variant still supplies tick dimensions. Small lines reserve 22px above the label;
@@ -276,27 +278,29 @@ Large is used by the VM card, small by home and Resources. Labels ellipsize rath
 than wrapping. Resources always requests screen-reader-only labels; home/card
 labels follow the 600px rule. Each item retains a text status and title tooltip.
 
-The model reads `cf/processes` with legacy `cf/stages` fallback. In that fallback,
-Validate and Register are assumed successful, Finalize succeeds only for overall
-ready, and failure handling is inferred from overall state. The line is therefore
-not always a direct per-process observation. Missing/invalid statuses fall back;
-do not present an inferred stop as a new live event.
+The model reads `RunView.stages` from the authenticated `vms` API. No stage annotation
+parsing or inferred completion remains. Home and Resources each issue one `/summary`
+request, join by VM name and refresh about every five seconds (including terminal
+summaries, to discover newly created runs). Without a known run they show coarse
+`cf/status` and "No run known", not fabricated stage observations. Summary failures
+surface an error and fall back to catalog state.
 
 ### VM state vocabulary
 
 Overall VM state and process state are separate concepts:
 
-| VM state | Source `cf/status` | Display / marker |
-| --- | --- | --- |
-| `ready` | `ready` | Ready; green. |
-| `building` | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Home filter calls this In progress. |
-| `failed` | `failed` | Failed at the first failed station, otherwise Failed; red marker and darker red text. |
-| `destroying` | `destroying` | Destroying; grey marker and retired line. |
-| `other` | Anything else or absent | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter. |
+| VM state     | Source `cf/status`         | Display / marker                                                                                                                          |
+| ------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `ready`      | `ready`                    | Ready; green.                                                                                                                             |
+| `building`   | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Home filter calls this In progress. |
+| `failed`     | `failed`                   | Failed at the first failed station, otherwise Failed; red marker and darker red text.                                                     |
+| `destroying` | `destroying`               | Destroying; grey marker and retired line.                                                                                                 |
+| `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter.                                                                |
 
-Attention helpers choose the first failed station before the first running one.
-Overall ready still labels the VM Ready even if process annotations disagree;
-the implementation does not resolve contradictory upstream status data.
+Attention helpers choose the first failed stage before a running/retrying stage.
+A known run takes precedence over coarse catalog status: failed → Failed, running
+provision/refry → Building, succeeded provision/refry → Ready, and destroy → Destroying.
+Cancelled runs retain the catalog status. Destroyed is never inferred from success alone.
 
 ### Buttons, fields and browser surfaces
 
@@ -325,7 +329,7 @@ Rows show size bullet/name/state, pipeline, details/software chips, **Requested*
 time and one next action. Failed rows sort first, then building, ready, other,
 destroying, with name sorting within each group. Ready links to the certificate
 template; building/failed link to View run only when a run URL exists. No action
-is fabricated when unavailable. Home polls the catalog about every 10 seconds.
+is fabricated when unavailable. Run links go to `/vms/runs/<id>`. Home polls the catalog about every 10 seconds.
 Team scoping is enforced by the existing catalog permission policy, not a local
 team-only filter; administrators can see all VMs.
 
@@ -347,9 +351,10 @@ VM pages replace the entity header with Resources breadcrumb, size bullet, VM
 name, favourite star, team, OS/platform, lifecycle and inventory-source link.
 Section tabs appear only when there is more than one; otherwise a spacer is used.
 The stock About card is hidden only for VMs, whose content cards precede info
-cards. The VM pipeline card contains summary/activity, the large line, last-check
-note, Access, all nine process rows (including failure handling), and Desired
-configuration. SSH certificate, optional GitHub run, prefilled refry and destroy
+cards. The VM pipeline card contains the latest run (`/runs?name=<vm>&limit=1`, checked
+about every five seconds), the reusable run detail view, last catalog-check note,
+Access and Desired configuration. Catalog facts refresh every ten seconds, including
+after terminal runs, to discover later destruction. SSH certificate, orchestrator run, prefilled refry and destroy
 links remain reachable. Ready promotes certificate access; failed promotes the
 run link. Destroy is a red-text outlined action here, not home's filled red style.
 While destroying, only the destroy run link remains (promoted) and the `ssh`
@@ -359,18 +364,42 @@ claimed until the catalog no longer returns the entity.
 
 ### Stock and owned boundaries; known limitations
 
+### VM run page
+
+`/vms/runs/<id>` is a standalone page under the `vm-status` plugin's `/vms`
+page extension. It fetches the run without a catalog lookup, so registration may
+still be pending. The catalog link is navigation, not a readiness assertion.
+The reusable view shows kind, VM, requester/team, run status and timestamps,
+errors, the ordered line and stage rows. Rows include attempt/budget, retry
+countdown, stage times/outcome, current GitHub attempt, expandable job steps,
+earlier attempts and manual retry/skip attribution. Failed stage work is not
+silently relabelled complete.
+
+The standalone view polls `/runs/:id` about every five seconds only while running;
+terminal runs stop polling. Successful actions replace the view with the returned
+run and resume polling. Retry and Skip exist only when the API's caller-specific
+action flags permit them. Skip requires confirmation that work will not be applied
+and the desired spec will not change. Both controls disable while a request is
+pending; API `{error}` text is shown inline. Read failures show an explicit retry
+control on initial load, or an error with continued polling during an active run.
+The entity card uses the same view without a duplicate per-ID polling loop.
+
+Demo controls and the compute picker's restrictions discover `vms`, using
+`/demo/state` and `/demo/settings`; their existing response shapes are unchanged.
+
+### Boundaries
+
 - **Owned:** theme/BUI browser surfaces, top-bar layout/navigation/mark, home,
   Resources shell and VM columns, kind picker override, VM header/content/card,
-  password sign-in composition and the workflow-task augmentation.
+  password sign-in composition and VM run pages.
 - **Retained plugin building blocks:** catalog filtering/table mechanics, entity
   favourites, InfoCards, search modal/results, template picker/form fields and
   stepper, task controls/logs/output and settings profile/identity cards. Other
   entity pages retain their stock entity content/About card. Plain page themes
   apply to these surfaces but do not make them entirely bespoke.
-- **Task progress is not PipelineLine:** `WorkflowTasks.tsx` adds horizontally
-  scrolling 210px job cards, statuses, durations and expandable steps to the stock
-  task page, retaining a determinate progress bar and status chip. Do not claim
-  the transit-line rejection of generic bars has already been implemented here.
+- **Stock tasks:** VM templates finish after creating an orchestrator run and link
+  to its page. Removed workflow-progress events have no custom renderer; older
+  tasks retain stock logs/output. The task-event long-poll workaround remains.
 - **Template/form residue:** template card headers are reordered/styled by the
   theme, but their glyphs remain stock. The request-form stepper and its spacing
   gap are still stock; no owned correction is implemented. Their rendered extent
@@ -380,15 +409,16 @@ claimed until the catalog no longer returns the entity.
   route. Do not promise these menus as part of the VM-page action inventory.
 - **Age is not status age:** home's "Requested N ago" derives from
   `cf/requested-at`, not a state-transition/observation timestamp. The VM card's
-  last-checked time is local catalog-fetch time; ready/failed stop polling, while
+  last-checked time is local catalog-fetch time; catalog checks continue, while
   the header remains based on the enclosing entity. None proves when a workflow
   state changed. Home's refresh dot remains green even when an error is shown;
   it is not independently verified workflow health.
 - **Light only:** `theme:app/dark` is disabled in `app-config.yaml`. General
   settings intentionally shows only stock profile and identity cards, not theme
   selection or Pin Sidebar controls. No dark palette is defined here.
-- **No invented capabilities:** quota, billing totals, Copy SSH, retries and
-  real AD verification are not established UI capabilities. Billing is explicitly
+- **No invented capabilities:** billing totals, Copy SSH and
+  real AD verification are not established UI capabilities. Demo quota is backend-owned;
+  manual retry/skip are exposed only through API action flags. Billing is explicitly
   self-reported; desired software is not a reconciled installed inventory.
 
 Password sign-in is an owned composition of themed MUI controls: a narrow
@@ -401,7 +431,7 @@ world. Session restoration initially shows a spinner.
 ### Do
 
 - **Do** reuse PipelineLine and its state helpers across VM operating surfaces;
-  keep failure handling outside the eight-station track.
+  use the run's actual ordered stage list.
 - **Do** preserve the distinct non-stop tick, current halo, red cross and squared
   terminus; colour alone is not the whole line grammar.
 - **Do** show real next actions and honest timestamps, keeping request age,
@@ -417,6 +447,6 @@ world. Session restoration initially shows a spinner.
 - **Don't** use mono for ordinary VM facts or force tabular numerals globally.
 - **Don't** replace the owned VM pipeline with generic badge-plus-bar progress;
   equally, don't claim stock task/form surfaces have already been redesigned.
-- **Don't** invent quotas, costs, retries, menu actions or verified freshness.
+- **Don't** invent quotas, costs, action eligibility, menu actions or verified freshness.
 - **Don't** treat this source-derived document as evidence of a new browser or
   end-to-end verification run.

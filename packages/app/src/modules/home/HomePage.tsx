@@ -6,10 +6,13 @@ import { catalogApiRef } from '@backstage/plugin-catalog-react';
 import { errorMessage, reportClientEvent } from '../../clientLog';
 import {
   PipelineLine,
-  STATIONS,
   activeStation,
   VmState,
-  getPipelineProcesses,
+  runProcesses,
+  runStations,
+  runVmStatus,
+  useRunSummary,
+  RunView,
   getVmConfiguration,
   sizeBadge,
   useVmSizeText,
@@ -295,22 +298,24 @@ function teamsLabel(refs: string[]) {
 type Row = {
   entity: Entity;
   state: VmState;
+  run?: RunView;
 };
 
-function VmRow({ entity, state, now }: Row & { now: Date }) {
+function VmRow({ entity, state, run, now }: Row & { now: Date }) {
   const classes = useStyles();
   const annotations = entity.metadata.annotations ?? {};
-  const status = annotations['cf/status'];
-  const processes = getPipelineProcesses(annotations);
+  const status = runVmStatus(run, annotations['cf/status']);
+  const processes = runProcesses(run);
+  const stations = runStations(run);
   const desired = getVmConfiguration(entity.spec);
   const sizeText = useVmSizeText(entity);
   const color = vmStateColor(state);
   const ip = annotations['cf/public-ip'];
   const user = annotations['cf/ssh-user'] || 'ubuntu';
-  const runUrl = annotations['cf/run-url'];
+  const runUrl = run ? `/vms/runs/${run.id}` : undefined;
   const namespace = entity.metadata.namespace ?? 'default';
   const name = entity.metadata.name;
-  const active = activeStation(processes);
+  const active = activeStation(processes, stations);
   const requested = ago(annotations['cf/requested-at'], now);
   const os = desired.os === 'ubuntu' ? 'Ubuntu' : desired.os;
 
@@ -362,17 +367,22 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
               }}
             >
               <i className={classes.dot} style={{ background: color }} />
-              {vmStateLabel(status, processes)}
+              {vmStateLabel(status, processes, stations)}
             </div>
           </div>
         </div>
       </td>
       <td>
         <div className={classes.line}>
-          <PipelineLine
-            processes={processes}
-            retired={state === 'destroying'}
-          />
+          {run ? (
+            <PipelineLine
+              processes={processes}
+              stations={stations}
+              retired={state === 'destroying'}
+            />
+          ) : (
+            <span>No run known</span>
+          )}
         </div>
       </td>
       <td className={classes.meta}>
@@ -399,7 +409,7 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
             {active.status === 'failed'
               ? `${active.label} stage failed`
               : `${active.label} running`}{' '}
-            · stage {active.index + 1} of {STATIONS.length}
+            · stage {active.index + 1} of {stations.length}
           </div>
         )}
         {desired.software !== 'none' && (
@@ -422,6 +432,7 @@ function VmRow({ entity, state, now }: Row & { now: Date }) {
 
 export function HomePage() {
   const classes = useStyles();
+  const { runs, error: summaryError } = useRunSummary();
   const catalog = useApi(catalogApiRef);
   const identity = useApi(identityApiRef);
   const [vms, setVms] = useState<Entity[]>();
@@ -498,14 +509,20 @@ export function HomePage() {
     return (vms ?? [])
       .map(entity => ({
         entity,
-        state: vmState(entity.metadata.annotations?.['cf/status']),
+        run: runs[entity.metadata.name],
+        state: vmState(
+          runVmStatus(
+            runs[entity.metadata.name],
+            entity.metadata.annotations?.['cf/status'],
+          ),
+        ),
       }))
       .sort(
         (a, b) =>
           rank[a.state] - rank[b.state] ||
           a.entity.metadata.name.localeCompare(b.entity.metadata.name),
       );
-  }, [vms]);
+  }, [vms, runs]);
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = {
@@ -603,6 +620,11 @@ export function HomePage() {
       </div>
 
       {error && <div className={classes.error}>{error}</div>}
+      {summaryError && (
+        <div role="alert" className={classes.error}>
+          Run summary unavailable: {summaryError}. Showing catalog status.
+        </div>
+      )}
 
       {!vms && !error && (
         <div className={classes.empty}>Loading your team's machines…</div>
@@ -612,7 +634,7 @@ export function HomePage() {
         <div className={classes.empty}>
           <h2>No virtual machines yet</h2>
           <p>
-            Request one and watch it travel the line from Validate to Finalize.
+            Request one and watch it travel the line from Register to Finalize.
           </p>
           <Link to={REQUEST_VM} className={`${classes.btn} ${classes.primary}`}>
             <AddIcon />

@@ -53,48 +53,65 @@ const task = {
       {
         id: 'dispatch',
         name: 'Start VM pipeline',
-        action: 'github:actions:dispatch',
-      },
-      {
-        id: 'monitor',
-        name: 'Monitor VM workflow',
-        action: 'cf:watch-workflow',
+        action: 'cf:vm:dispatch',
       },
     ],
   },
 };
-const stage = (name, status, steps = []) => ({
-  name,
+const stage = (id, status, steps = []) => ({
+  id,
   status,
+  attempt: status === 'pending' ? 0 : 1,
+  maxAttempts: 4,
+  nextAttemptAt: null,
   startedAt: null,
-  completedAt: null,
+  finishedAt: null,
+  error: null,
+  skippable: ['software', 'ad-join'].includes(id),
+  skippedBy: null,
+  retriedBy: null,
+  outcome: null,
+  runUrl: 'https://github.com/example/platform/actions/runs/123',
   steps,
+  attempts: [],
 });
-let revision = 1;
 let demoOn = false;
 let streamRequests = 0;
+let runReads = 0;
+let actionError = false;
+let actionPosts = 0;
+let summaryReads = 0;
+let demoSettings = 0;
+let noSummary = false;
+let runReadError = true;
+let latestReads = 0;
+let entityGone = false;
 let snapshot = {
-  version: 1,
-  operation: 'provision',
-  status: 'in_progress',
-  conclusion: null,
-  jobs: [
-    stage('validate', 'success'),
+  id: 42,
+  kind: 'provision',
+  name: 'spec-vm',
+  team: 'alpha',
+  requestId: 'fixture-request',
+  requestedBy: 'user:default/amirasyraf',
+  createdAt: '2026-11-15T00:00:00Z',
+  updatedAt: '2026-11-15T00:00:00Z',
+  finishedAt: null,
+  error: null,
+  status: 'running',
+  actions: { retry: false, skip: false },
+  stages: [
     stage('register', 'success'),
-    stage('provision', 'in_progress', [
+    stage('provision', 'running', [
       {
         name: 'Terraform apply',
         status: 'in_progress',
-        startedAt: null,
-        completedAt: null,
       },
     ]),
-    stage('fry-baseline / fry', 'waiting'),
-    stage('fry-software / fry', 'waiting'),
-    stage('fry-ad-join / fry', 'waiting'),
-    stage('fry-access / fry', 'waiting'),
-    stage('finalize', 'waiting'),
-    stage('on-failure', 'waiting'),
+    stage('baseline', 'pending'),
+    stage('software', 'pending'),
+    stage('ad-join', 'pending'),
+    stage('access', 'pending'),
+    stage('finalize', 'pending'),
   ],
 };
 const browser = await chromium.launch({ headless: true, channel: 'chrome' });
@@ -150,15 +167,6 @@ try {
             status: 'completed',
             message:
               'HTTP 201 Created — mock ServiceNow request RITM0000001234 accepted',
-          },
-        },
-        {
-          id: 1 + revision,
-          type: 'log',
-          body: {
-            stepId: 'monitor',
-            status: 'processing',
-            message: `CF_WORKFLOW_PROGRESS_V1 ${JSON.stringify(snapshot)}`,
           },
         },
       ]
@@ -246,9 +254,71 @@ try {
           }),
         ],
       };
-    } else if (demoOn && path.endsWith('/demo-mode/state')) {
+    } else if (path.endsWith('/vms/summary')) {
+      summaryReads++;
+      json = { vms: noSummary ? [] : [{ name: 'spec-vm', latest: snapshot }] };
+    } else if (path.endsWith('/vms/runs')) {
+      latestReads++;
+      const query = new URL(route.request().url()).searchParams;
+      if (query.get('name') !== 'spec-vm' || query.get('limit') !== '1')
+        throw new Error('Latest run query mismatch');
+      json = { runs: [snapshot] };
+    } else if (/\/vms\/runs\/42\/(retry|skip)$/.test(path)) {
+      actionPosts++;
+      await delay(500);
+      if (route.request().method() !== 'POST')
+        throw new Error('Expected action POST');
+      if (actionError) {
+        await route.fulfill({
+          status: 409,
+          json: { error: 'Fixture conflict: stage changed' },
+        });
+        return;
+      }
+      snapshot = {
+        ...snapshot,
+        status: 'running',
+        actions: { retry: false, skip: false },
+        stages: snapshot.stages.map(s =>
+          s.id === 'software'
+            ? {
+                ...s,
+                status: path.endsWith('/skip') ? 'skipped' : 'running',
+                skippedBy: path.endsWith('/skip')
+                  ? 'user:default/amirasyraf'
+                  : null,
+                retriedBy: path.endsWith('/retry')
+                  ? 'user:default/amirasyraf'
+                  : null,
+              }
+            : s,
+        ),
+      };
+      json = snapshot;
+    } else if (path.endsWith('/vms/runs/42')) {
+      runReads++;
+      if (runReadError) {
+        await route.fulfill({
+          status: 404,
+          json: { error: 'Run not found or not visible' },
+        });
+        return;
+      }
+      json = snapshot;
+    } else if (path.endsWith('/vms/demo/settings')) {
+      demoSettings++;
+      demoOn = route.request().postDataJSON().enabled;
+      json = {};
+    } else if (path.endsWith('/vms/demo/state')) {
       json = {
-        enabled: true,
+        enabled: demoOn,
+        generation: 'fixture-generation',
+        isAdmin: admin,
+        automationAvailable: false,
+        ownedCount: 1,
+        lastScan: Date.now(),
+        error: null,
+        vms: [],
         instanceTypes: ['t3.micro', 't3.small', 't3.medium', 't3.large'],
       };
     } else if (path.endsWith('/vm-request/parameter-schema')) {
@@ -300,6 +370,13 @@ try {
     } else if (path.endsWith('/ancestry')) {
       json = { items: [{ entity: vm, parentEntityRefs: [] }] };
     } else if (path.includes('/entities/by-name/')) {
+      if (entityGone && path.includes('/resource/')) {
+        await route.fulfill({
+          status: 404,
+          json: { error: { name: 'NotFoundError', message: 'Entity removed' } },
+        });
+        return;
+      }
       json = path.includes('/resource/') ? vm : template;
     } else if (path.endsWith('/entities')) {
       json = [vm];
@@ -307,50 +384,174 @@ try {
     await route.fulfill({ json });
   });
   await page.goto(`${base}/create/tasks/${task.id}`);
-  const graph = page.getByRole('region', { name: 'GitHub Actions stages' });
-  await expect(graph).toBeVisible();
   await expect(
     page.getByText('Create ServiceNow request (mock)', { exact: true }),
   ).toBeVisible();
-  await expect(graph.getByText('Provision', { exact: true })).toBeVisible();
-  await expect(graph.getByText('Baseline', { exact: true })).toBeVisible();
-  await graph.locator('details').nth(2).locator('summary').click();
-  await expect(graph.getByText('Terraform apply')).toBeVisible();
   await expect(
     page.getByRole('button', { name: 'Cancel', exact: true }),
   ).toBeVisible();
-  await page.reload();
-  await expect(graph).toBeVisible();
-  snapshot = {
-    ...snapshot,
-    status: 'completed',
-    conclusion: 'failure',
-    jobs: snapshot.jobs.map(job => ({
-      ...job,
-      status:
-        job.name === 'provision'
-          ? 'failure'
-          : job.name === 'fry-software / fry'
-          ? 'skipped'
-          : job.status,
-    })),
-  };
-  revision++;
-  // No reload: the long-poll loop must pick up the new snapshot on its own.
-  await expect(graph.getByText('failure', { exact: true })).toBeVisible();
-  await expect(graph.getByText('skipped', { exact: true })).toBeVisible();
+  await expect(page.getByText('Workflow stages', { exact: true })).toHaveCount(
+    0,
+  );
   if (streamRequests)
     throw new Error(`Task page opened ${streamRequests} SSE stream(s)`);
+  await page.goto(`${base}/vms/runs/42`);
+  await expect(page.getByRole('alert')).toContainText(
+    'Run not found or not visible',
+  );
+  runReadError = false;
+  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  const runView = page.getByRole('region', { name: 'VM run 42', exact: true });
+  await expect(runView).toBeVisible();
+  await expect(runView.getByText('running', { exact: true })).toHaveCount(2);
+  await runView.locator('details').nth(1).locator('summary').click();
+  await expect(
+    runView.getByText('Terraform apply · in_progress'),
+  ).toBeVisible();
+  await expect(
+    runView.getByRole('link', { name: 'Open VM in catalog' }),
+  ).toHaveAttribute('href', '/catalog/default/resource/spec-vm');
+  snapshot = {
+    ...snapshot,
+    stages: snapshot.stages.map(s =>
+      s.id === 'software'
+        ? {
+            ...s,
+            status: 'retrying',
+            attempt: 2,
+            nextAttemptAt: new Date(Date.now() + 120000).toISOString(),
+            error: 'Package mirror unavailable',
+            attempts: [
+              {
+                attempt: 1,
+                runUrl: s.runUrl,
+                conclusion: 'failure',
+                error: 'First failure',
+                finishedAt: snapshot.updatedAt,
+              },
+            ],
+          }
+        : s,
+    ),
+  };
+  await expect(runView.getByText(/^Retry in \d+s/)).toBeVisible({
+    timeout: 10000,
+  });
+  await runView.getByText('Earlier attempts (1)', { exact: true }).click();
+  await expect(
+    runView.getByText('First failure', { exact: true }),
+  ).toBeVisible();
+  snapshot = {
+    ...snapshot,
+    status: 'failed',
+    error: 'Software failed',
+    actions: { retry: true, skip: true },
+    stages: snapshot.stages.map(s =>
+      s.id === 'software' ? { ...s, status: 'failed' } : s,
+    ),
+  };
+  await expect(
+    runView.getByRole('button', { name: 'Retry', exact: true }),
+  ).toBeVisible({ timeout: 10000 });
+  const stoppedReads = runReads;
+  await page.waitForTimeout(5500);
+  if (runReads !== stoppedReads) throw new Error('Terminal run kept polling');
+  actionError = true;
+  await runView.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(
+    runView.getByRole('button', { name: 'Retrying…', exact: true }),
+  ).toBeDisabled();
+  await expect(runView.getByRole('alert')).toHaveText(
+    'Fixture conflict: stage changed',
+  );
+  actionError = false;
+  const beforeDismiss = actionPosts;
+  await runView.getByRole('button', { name: 'Skip', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
+  if (actionPosts !== beforeDismiss)
+    throw new Error('Cancelled skip posted an action');
+  await runView.getByRole('button', { name: 'Skip', exact: true }).click();
+  await expect(
+    page.getByRole('dialog').getByText(/work will not be applied/),
+  ).toBeVisible();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Skip stage', exact: true })
+    .click();
+  await expect(
+    runView.getByText(/Skipped by user:default\/amirasyraf/),
+  ).toBeVisible();
+  snapshot = {
+    ...snapshot,
+    status: 'failed',
+    actions: { retry: true, skip: false },
+  };
+  await expect(
+    runView.getByRole('button', { name: 'Retry', exact: true }),
+  ).toBeVisible({ timeout: 10000 });
+  await runView.getByRole('button', { name: 'Retry', exact: true }).click();
+  await expect(
+    runView.getByText('Retried by user:default/amirasyraf'),
+  ).toBeVisible();
+  snapshot = {
+    ...snapshot,
+    status: 'succeeded',
+    error: null,
+    finishedAt: snapshot.updatedAt,
+    stages: snapshot.stages.map(s => ({
+      ...s,
+      status: 'success',
+      error: null,
+    })),
+  };
+  await expect(runView.getByText('succeeded', { exact: true })).toBeVisible({
+    timeout: 10000,
+  });
+  await expect(
+    runView.getByRole('button', { name: 'Retry', exact: true }),
+  ).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(graph).toBeVisible();
-  const overflows = await graph.evaluate(el => el.scrollWidth > el.clientWidth);
-  if (!overflows)
-    throw new Error('Stage graph should scroll on narrow screens');
+  await expect(runView).toBeVisible();
+  if (
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    )
+  )
+    throw new Error('Run page overflows mobile viewport');
   assertNoErrors(errors);
   console.log(
-    'WORKFLOW UI PASS: pre-GHA mock REST step, stages, live long-poll update (no SSE), expandable steps, controls, replay, failure/skipped states, narrow layout (fixture APIs)',
+    'RUN UI PASS: catalog-independent route, live polling, retry countdown, earlier attempts, terminal stop, action errors, skip confirmation/cancel, retry/skip resumption, success, mobile; stock task controls and no SSE (fixture APIs)',
   );
   await page.setViewportSize({ width: 1440, height: 1000 });
+  const succeeded = snapshot;
+  snapshot = {
+    ...snapshot,
+    kind: 'refry',
+    stages: [
+      stage('configure', 'skipped'),
+      stage('baseline', 'success'),
+      stage('finalize', 'success'),
+    ],
+  };
+  await page.reload();
+  await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(3);
+  snapshot = {
+    ...snapshot,
+    kind: 'destroy',
+    stages: [stage('destroy', 'success'), stage('finalize', 'skipped')],
+  };
+  await page.reload();
+  await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(2);
+  snapshot = {
+    ...succeeded,
+    status: 'failed',
+    stages: succeeded.stages.map(s =>
+      s.id === 'software' ? { ...s, status: 'failed' } : s,
+    ),
+  };
   await page.goto(`${base}/catalog`);
   const kind = page
     .getByText('Kind', { exact: true })
@@ -364,6 +565,12 @@ try {
     page.getByRole('columnheader', { name: 'Pipeline' }),
   ).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
+  if (!summaryReads) throw new Error('Catalog did not load run summary');
+  if (latestReads) throw new Error('List performed per-VM latest-run requests');
+  await expect(
+    page.getByText('Failed at Software', { exact: true }),
+  ).toBeVisible();
+  snapshot = succeeded;
   await expect(page.getByText('Catalog', { exact: true })).toHaveCount(0);
   await kind.click();
   await expect(page.getByRole('option')).toHaveCount(1);
@@ -385,10 +592,17 @@ try {
   await expect(kind).toHaveText('Group');
   await page.goto(`${base}/catalog?filters%5Bkind%5D=user`);
   await expect(kind).toHaveText('User');
+  noSummary = true;
+  await page.goto(`${base}/catalog`);
+  await expect(page.getByText('No run known', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ready', { exact: true })).toBeVisible();
+  noSummary = false;
   assertNoErrors(errors);
   console.log(
     'CATALOG UI PASS: own header, VM state/pipeline columns, Resource default, normal-user Resource-only picker and deep links, admin kind selection and explicit links (fixture APIs)',
   );
+  snapshot = { ...succeeded, status: 'running' };
+  const beforeEntity = runReads;
   await page.goto(`${base}/catalog/default/resource/spec-vm`);
   await expect(
     page.getByRole('heading', { name: 'Desired configuration' }),
@@ -402,11 +616,45 @@ try {
   await expect(
     page.getByText('cost_center: CC-1234, environment: test', { exact: true }),
   ).toBeVisible();
+  await page.waitForTimeout(5500);
+  if (runReads !== beforeEntity)
+    throw new Error(
+      'Entity card duplicated latest-run polling with per-ID polling',
+    );
+  entityGone = true;
+  snapshot = {
+    ...succeeded,
+    kind: 'destroy',
+    stages: [stage('destroy', 'success'), stage('finalize', 'skipped')],
+  };
+  await expect(page.getByText('Destroyed', { exact: true })).toBeVisible({
+    timeout: 15000,
+  });
+  const afterRemoval = latestReads;
+  await page.waitForTimeout(5500);
+  if (latestReads !== afterRemoval)
+    throw new Error('Removed VM kept polling runs');
+  entityGone = false;
+  snapshot = succeeded;
   assertNoErrors(errors);
   console.log(
     'VM SPEC UI PASS: desired configuration renders from spec without desired-input annotations (fixture APIs)',
   );
   await page.goto(`${base}/`);
+  const demoPanel = page.getByRole('region', {
+    name: 'Demo mode',
+    exact: true,
+  });
+  await expect(demoPanel.getByText('Demo mode · Off')).toBeVisible();
+  await demoPanel.getByLabel('Enable demo mode').click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page
+    .getByRole('button', { name: 'Enable and apply limits', exact: true })
+    .click();
+  await expect(demoPanel.getByText('Demo mode · On')).toBeVisible();
+  if (!demoSettings)
+    throw new Error('Demo toggle did not use /vms/demo/settings');
+  demoOn = false;
   await expect(
     page.getByRole('heading', { name: /^Good (morning|afternoon|evening)/ }),
   ).toBeVisible();

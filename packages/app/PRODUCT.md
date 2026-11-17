@@ -27,23 +27,23 @@ VM is in that pipeline.
 
 ## Positioning
 
-Every VM is built through one visible, staged pipeline driven by GitHub Actions, and each VM's
+Every VM is built through one visible, staged pipeline owned by the IDP orchestrator; GitHub Actions executes each stage. Each VM's
 `catalog-info.yaml` in Git is its single desired-configuration source and inventory record. The IDP shows
-live job-by-job progress of that pipeline, both in the request task and on the VM's page.
+live stage/attempt progress on a standalone run page and the VM's page. Request tasks create a run and link to it, without waiting for provisioning.
 
 ## Operating Context
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh ubuntu@<ip>` with key + issued cert).
-- Core flows: sign in → home → request VM (Scaffolder template form) → live task view of workflow stages →
+- Core flows: sign in → home → request VM (Scaffolder template form) → task output → live VM run page →
   VM entity page with status card → get SSH certificate / refry / destroy templates.
 - Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
-- Workflow progress updates about every 10 seconds.
+- Active run progress and list summaries update about every 5 seconds; catalog facts refresh about every 10 seconds.
 
 ## Capabilities and Constraints
 
-- Must keep every existing function: password sign-in, team-scoped catalog, VM status card, live
-  workflow-stage view on tasks, templates (request, SSH cert, refry, destroy), search, user settings. The Create page
+- Must keep password sign-in, team-scoped catalog, VM status card, standalone live run view,
+  templates (request, SSH cert, refry, destroy), search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. The Create page
   lists only "Request a VM"; the other templates act on an existing VM and open from the VM page or Home.
 - Customization only through official Backstage theming, extension overrides, blueprints and frontend
   modules. No forking or patching upstream plugins. Key pages (home, catalog list, VM page, request flow)

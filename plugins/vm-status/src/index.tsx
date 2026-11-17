@@ -1,5 +1,9 @@
 import { Entity } from '@backstage/catalog-model';
-import { createFrontendPlugin } from '@backstage/frontend-plugin-api';
+import {
+  createFrontendPlugin,
+  createRouteRef,
+  PageBlueprint,
+} from '@backstage/frontend-plugin-api';
 import {
   EntityCardBlueprint,
   EntityContentLayoutBlueprint,
@@ -10,13 +14,21 @@ export {
   PipelineLine,
   STATIONS,
   activeStation,
-  getPipelineProcesses,
+  runProcesses,
+  runStations,
   vmColors,
   vmState,
   vmStateColor,
   vmStateLabel,
   type VmState,
 } from './pipeline';
+export {
+  useRunSummary,
+  useVmsApi,
+  runVmStatus,
+  type RunView,
+  type StageView,
+} from './runs';
 export { getVmConfiguration } from './vmSpec';
 export {
   describeSpecs,
@@ -40,6 +52,14 @@ const isVm = (entity: Entity) =>
 export default createFrontendPlugin({
   pluginId: 'vm-status',
   extensions: [
+    PageBlueprint.make({
+      name: 'runs',
+      params: {
+        path: '/vms',
+        routeRef: createRouteRef(),
+        loader: async () => import('./RunView').then(m => <m.VmRunsPage />),
+      },
+    }),
     EntityCardBlueprint.make({
       name: 'status',
       params: {

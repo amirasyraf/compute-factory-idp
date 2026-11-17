@@ -105,8 +105,8 @@ export function useInstanceTypeCatalog(
 
 export function useDemoRestriction(): DemoRestriction | undefined {
   const value = useCachedJson<{ enabled?: boolean; instanceTypes?: string[] }>(
-    'demo-mode',
-    '/state',
+    'vms',
+    '/demo/state',
     true,
     demoFallback,
   );

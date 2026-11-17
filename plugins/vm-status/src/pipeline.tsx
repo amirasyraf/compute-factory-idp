@@ -1,111 +1,58 @@
 import { makeStyles } from '@material-ui/core';
+import { RunView } from './runs';
 
 export type PipelineStatus =
   | 'pending'
   | 'running'
+  | 'retrying'
+  | 'cancelled'
   | 'success'
   | 'failed'
   | 'skipped';
 
 export const PROCESS_ORDER = [
-  'validate',
   'register',
   'provision',
-  'fry-baseline',
-  'fry-software',
-  'fry-ad-join',
-  'fry-access',
+  'baseline',
+  'software',
+  'ad-join',
+  'access',
   'finalize',
-  'on-failure',
 ] as const;
 
-export type ProcessName = (typeof PROCESS_ORDER)[number];
+export type ProcessName = string;
 
-/** The eight stations of the line; failure handling is a branch, not a station. */
+/** Provision run stations. Refry and destroy use their own ordered run stages. */
 export const STATIONS: { process: ProcessName; label: string }[] = [
-  { process: 'validate', label: 'Validate' },
   { process: 'register', label: 'Register' },
   { process: 'provision', label: 'Provision' },
-  { process: 'fry-baseline', label: 'Baseline' },
-  { process: 'fry-software', label: 'Software' },
-  { process: 'fry-ad-join', label: 'AD join' },
-  { process: 'fry-access', label: 'Access' },
+  { process: 'baseline', label: 'Baseline' },
+  { process: 'software', label: 'Software' },
+  { process: 'ad-join', label: 'AD join' },
+  { process: 'access', label: 'Access' },
   { process: 'finalize', label: 'Finalize' },
 ];
 
-const validStatuses = new Set<PipelineStatus>([
-  'pending',
-  'running',
-  'success',
-  'failed',
-  'skipped',
-]);
-
-function parseStatuses(
-  value: string | undefined,
-): Record<string, PipelineStatus> {
-  if (!value) return {};
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-      return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter(([, status]) =>
-        validStatuses.has(status as PipelineStatus),
-      ),
-    ) as Record<string, PipelineStatus>;
-  } catch {
-    return {};
-  }
+export function stageLabel(id: string): string {
+  return (
+    ({ 'ad-join': 'AD join' } as Record<string, string>)[id] ??
+    id[0].toUpperCase() + id.slice(1)
+  );
 }
 
-function getFailureProcessStatus(status: string | undefined): PipelineStatus {
-  if (status === 'failed') return 'success';
-  if (status === 'ready') return 'skipped';
-  return 'pending';
-}
-
-/**
- * Converts the five legacy stage annotations into the complete workflow view.
- * This keeps already-registered VMs readable while new inventory entries expose
- * the explicit cf/processes annotation.
- */
-export function getPipelineProcesses(
-  annotations: Record<string, string>,
-): Record<ProcessName, PipelineStatus> {
-  const stages = parseStatuses(annotations['cf/stages']);
-  const recorded = parseStatuses(annotations['cf/processes']);
-  const processStageMap: Record<string, string> = {
-    provision: 'provision',
-    'fry-baseline': 'baseline',
-    'fry-software': 'software',
-    'fry-ad-join': 'ad-join',
-    'fry-access': 'access',
-  };
-  const fallback = Object.fromEntries(
-    PROCESS_ORDER.map(process => {
-      if (process === 'validate' || process === 'register') {
-        return [process, 'success'];
-      }
-      if (process === 'finalize') {
-        return [
-          process,
-          annotations['cf/status'] === 'ready' ? 'success' : 'pending',
-        ];
-      }
-      if (process === 'on-failure') {
-        return [process, getFailureProcessStatus(annotations['cf/status'])];
-      }
-      return [process, stages[processStageMap[process]] ?? 'pending'];
-    }),
-  ) as Record<ProcessName, PipelineStatus>;
-
+export function runProcesses(run?: RunView): Record<string, PipelineStatus> {
   return Object.fromEntries(
-    PROCESS_ORDER.map(process => [
-      process,
-      recorded[process] ?? fallback[process],
-    ]),
-  ) as Record<ProcessName, PipelineStatus>;
+    run?.stages.map(stage => [stage.id, stage.status]) ?? [],
+  );
+}
+
+export function runStations(run?: RunView) {
+  return (
+    run?.stages.map(stage => ({
+      process: stage.id,
+      label: stageLabel(stage.id),
+    })) ?? STATIONS
+  );
 }
 
 export function statusLabel(status: PipelineStatus): string {
@@ -114,6 +61,10 @@ export function statusLabel(status: PipelineStatus): string {
       return 'Completed';
     case 'running':
       return 'In progress';
+    case 'retrying':
+      return 'Retrying';
+    case 'cancelled':
+      return 'Cancelled';
     case 'failed':
       return 'Failed';
     case 'skipped':
@@ -154,13 +105,16 @@ export function vmStateColor(state: VmState): string {
 /** The stop that needs attention: the failed one, else the running one. */
 export function activeStation(
   processes: Record<ProcessName, PipelineStatus>,
+  stations = STATIONS,
 ): { label: string; status: PipelineStatus; index: number } | undefined {
   const index =
-    STATIONS.findIndex(s => processes[s.process] === 'failed') >= 0
-      ? STATIONS.findIndex(s => processes[s.process] === 'failed')
-      : STATIONS.findIndex(s => processes[s.process] === 'running');
+    stations.findIndex(s => processes[s.process] === 'failed') >= 0
+      ? stations.findIndex(s => processes[s.process] === 'failed')
+      : stations.findIndex(s =>
+          ['running', 'retrying'].includes(processes[s.process]),
+        );
   if (index < 0) return undefined;
-  const { process, label } = STATIONS[index];
+  const { process, label } = stations[index];
   return { label, status: processes[process], index };
 }
 
@@ -168,10 +122,13 @@ export function activeStation(
 export function vmStateLabel(
   status: string | undefined,
   processes: Record<ProcessName, PipelineStatus>,
+  stations = STATIONS,
 ): string {
   const state = vmState(status);
-  const failed = STATIONS.find(s => processes[s.process] === 'failed');
-  const running = STATIONS.find(s => processes[s.process] === 'running');
+  const failed = stations.find(s => processes[s.process] === 'failed');
+  const running = stations.find(s =>
+    ['running', 'retrying'].includes(processes[s.process]),
+  );
   if (state === 'ready') return 'Ready';
   if (state === 'failed')
     return failed ? `Failed at ${failed.label}` : 'Failed';
@@ -325,22 +282,31 @@ export function PipelineLine({
   retired = false,
   showLabels = true,
   size = 'small',
+  stations = STATIONS,
 }: {
   processes: Record<ProcessName, PipelineStatus>;
   retired?: boolean;
   showLabels?: boolean;
   size?: 'small' | 'large';
+  stations?: { process: string; label: string }[];
 }) {
   const classes = useStyles();
   return (
-    <ol className={classes.line} aria-label="Pipeline stages">
-      {STATIONS.map(({ process, label }) => {
-        const status = processes[process];
+    <ol
+      className={classes.line}
+      style={{
+        gridTemplateColumns: `repeat(${stations.length}, minmax(0, 1fr))`,
+      }}
+      aria-label="Pipeline stages"
+    >
+      {stations.map(({ process, label }) => {
+        const status = processes[process] ?? 'pending';
         let variant = '';
         if (retired) variant = classes.retired;
         else if (status === 'success') variant = classes.done;
         else if (status === 'skipped') variant = classes.skipped;
-        else if (status === 'running') variant = classes.current;
+        else if (status === 'running' || status === 'retrying')
+          variant = classes.current;
         else if (status === 'failed') variant = classes.failed;
         return (
           <li
@@ -350,7 +316,7 @@ export function PipelineLine({
             } ${variant}`}
             title={`${label}: ${
               status === 'skipped'
-                ? 'Skipped (not requested)'
+                ? 'Skipped (not applied)'
                 : statusLabel(status)
             }`}
           >

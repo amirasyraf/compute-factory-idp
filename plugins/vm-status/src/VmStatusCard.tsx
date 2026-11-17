@@ -6,69 +6,9 @@ import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
 import { makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
 import { useVmSizeText } from './vmSizes';
-import {
-  PROCESS_ORDER,
-  PipelineLine,
-  PipelineStatus,
-  ProcessName,
-  getPipelineProcesses,
-  statusLabel,
-  vmColors,
-  vmState,
-  vmStateLabel,
-} from './pipeline';
-
-const processInfo: Record<ProcessName, { label: string; description: string }> =
-  {
-    validate: {
-      label: 'Validate request',
-      description:
-        'Check the VM name, team, platform, OS and software choices.',
-    },
-    register: {
-      label: 'Register VM inventory',
-      description:
-        'Commit the desired VM spec and catalog entity to the platform inventory.',
-    },
-    provision: {
-      label: 'Provision compute instance',
-      description: 'Create the VM with Terraform and record its IP address.',
-    },
-    'fry-baseline': {
-      label: 'Fry: baseline',
-      description: 'Apply hostname, timezone, hosts, banner and VM metadata.',
-    },
-    'fry-software': {
-      label: 'Fry: software',
-      description:
-        'Install the software selected in the request, or skip if none was selected.',
-    },
-    'fry-ad-join': {
-      label: 'Fry: AD join',
-      description:
-        'Apply the requested mock AD membership, or skip when it was not selected.',
-    },
-    'fry-access': {
-      label: 'Fry: team access',
-      description:
-        'Grant the owning team access through the SSH certificate principal.',
-    },
-    finalize: {
-      label: 'Finalize VM',
-      description: 'Mark the VM ready after every required stage succeeds.',
-    },
-    'on-failure': {
-      label: 'Failure handling',
-      description:
-        'Record a failed running process while keeping the VM for diagnosis.',
-    },
-  };
-
-function statusDot(status: PipelineStatus): string {
-  if (status === 'success' || status === 'running') return vmColors.blue;
-  if (status === 'failed') return vmColors.red;
-  return '#C9CDD2';
-}
+import { RunView, runVmStatus, useVmsApi } from './runs';
+import { VmRunView } from './RunView';
+import { vmColors, vmState } from './pipeline';
 
 const useStyles = makeStyles(theme => ({
   head: {
@@ -79,7 +19,6 @@ const useStyles = makeStyles(theme => ({
   },
   state: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
   activity: { color: vmColors.mute, fontSize: 13, marginTop: 2 },
-  line: { margin: theme.spacing(3, 0, 1) },
   note: { color: vmColors.mute, fontSize: 12.5 },
   error: { color: vmColors.redText, fontSize: 13, marginTop: 8 },
   section: {
@@ -92,28 +31,6 @@ const useStyles = makeStyles(theme => ({
     fontWeight: 700,
     margin: '0 0 10px',
   },
-  steps: { margin: 0, padding: 0, listStyle: 'none' },
-  step: {
-    display: 'grid',
-    gridTemplateColumns: '1fr auto',
-    columnGap: 16,
-    padding: '9px 0',
-    borderBottom: `1px solid ${theme.palette.divider}`,
-    '&:last-child': { borderBottom: 0 },
-  },
-  stepLabel: { fontSize: 14, fontWeight: 600 },
-  stepDesc: { fontSize: 12.5, color: vmColors.mute, marginTop: 2 },
-  stepStatus: {
-    fontSize: 12.5,
-    fontWeight: 600,
-    alignSelf: 'center',
-    color: vmColors.ink,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 6,
-    whiteSpace: 'nowrap',
-  },
-  stepDot: { width: 8, height: 8, borderRadius: '50%', flex: 'none' },
   facts: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
@@ -168,6 +85,9 @@ export function VmStatusCard() {
   const classes = useStyles();
   const { entity: initial } = useEntity();
   const api = useApi(catalogApiRef);
+  const runsApi = useVmsApi();
+  const [run, setRun] = useState<RunView>();
+  const [runError, setRunError] = useState<string>();
   const [entity, setEntity] = useState(initial);
   const [error, setError] = useState<string>();
   const [lastRefreshed, setLastRefreshed] = useState(() => new Date());
@@ -183,35 +103,41 @@ export function VmStatusCard() {
   const annotations = entity.metadata.annotations ?? {};
   const desired = getVmConfiguration(entity.spec);
   const sizeText = useVmSizeText(entity);
-  const overallStatus = annotations['cf/status'] ?? 'unknown';
+  const overallStatus = runVmStatus(run, annotations['cf/status']) ?? 'unknown';
   const state = vmState(overallStatus);
-  const processes = getPipelineProcesses(annotations);
-  const rows = PROCESS_ORDER.map(process => ({
-    process,
-    ...processInfo[process],
-    status: processes[process],
-  }));
-  const active = rows.find(row => row.status === 'running');
-  const failed = rows.find(row => row.status === 'failed');
   const ip = annotations['cf/public-ip'];
   const user = annotations['cf/ssh-user'] || 'ubuntu';
   const prefill = encodeURIComponent(
     JSON.stringify({ vm: stringifyEntityRef(entity) }),
   );
-  const runUrl = annotations['cf/run-url'];
+  const runUrl = run ? `/vms/runs/${run.id}` : undefined;
   const destroying = state === 'destroying';
-  let currentActivity = 'Waiting for pipeline updates';
-  if (destroying)
-    currentActivity =
-      'The destroy workflow is removing this VM. This page updates when it leaves the catalog.';
-  else if (failed) currentActivity = `${failed.label} failed`;
-  else if (active) currentActivity = active.label;
-  else if (overallStatus === 'ready')
-    currentActivity = 'All pipeline processes completed';
 
   useEffect(() => {
-    if (removed || overallStatus === 'ready' || overallStatus === 'failed')
-      return undefined;
+    if (removed) return undefined;
+    let disposed = false;
+    let timer: number;
+    setRun(undefined);
+    async function load() {
+      try {
+        const result = await runsApi.latest(initial.metadata.name);
+        if (disposed) return;
+        setRun(result.runs[0]);
+        setRunError(undefined);
+      } catch (e) {
+        if (!disposed) setRunError((e as Error).message);
+      }
+      if (!disposed) timer = window.setTimeout(load, 5000);
+    }
+    load();
+    return () => {
+      disposed = true;
+      window.clearTimeout(timer);
+    };
+  }, [runsApi, initial.metadata.name, removed]);
+
+  useEffect(() => {
+    if (removed) return undefined;
     let disposed = false;
     let fetching = false;
     const timer = window.setInterval(async () => {
@@ -237,11 +163,8 @@ export function VmStatusCard() {
     };
   }, [api, entity, overallStatus, removed]);
 
-  let refreshNote =
-    'Refreshes about every 10 seconds while the pipeline is active.';
-  if (state === 'ready' || state === 'failed') refreshNote = '';
-  else if (destroying)
-    refreshNote = 'Checks about every 10 seconds until the VM is removed.';
+  const refreshNote =
+    'Catalog facts refresh about every 10 seconds; latest run about every 5 seconds.';
 
   if (removed) {
     return (
@@ -259,7 +182,7 @@ export function VmStatusCard() {
               rel="noreferrer"
               className={classes.action}
             >
-              View destroy run on GitHub
+              View destroy run
             </a>
           )}
           <Link
@@ -281,19 +204,28 @@ export function VmStatusCard() {
             className={classes.state}
             style={{ color: state === 'failed' ? vmColors.redText : undefined }}
           >
-            {vmStateLabel(overallStatus, processes)}
+            {overallStatus}
           </div>
-          <div className={classes.activity}>{currentActivity}</div>
+          <div className={classes.activity}>
+            {destroying
+              ? 'Removing this VM; checking until it leaves the catalog.'
+              : 'Latest orchestrator run'}
+          </div>
         </div>
       </div>
 
-      <div className={classes.line}>
-        <PipelineLine
-          processes={processes}
-          retired={state === 'destroying'}
-          size="large"
-        />
-      </div>
+      {run ? (
+        <VmRunView initialRun={run} poll={false} />
+      ) : (
+        <p>
+          No run known. Catalog status: {annotations['cf/status'] ?? 'unknown'}.
+        </p>
+      )}
+      {runError && (
+        <p role="alert" className={classes.error}>
+          Run updates unavailable: {runError}
+        </p>
+      )}
       <div className={classes.note}>
         {refreshNote} Last checked {lastRefreshed.toLocaleTimeString()}.
       </div>
@@ -336,7 +268,7 @@ export function VmStatusCard() {
                 state === 'failed' || destroying ? classes.primary : ''
               }`}
             >
-              {destroying ? 'View destroy run on GitHub' : 'View run on GitHub'}
+              {destroying ? 'View destroy run' : 'View run'}
             </a>
           )}
           {!destroying && (
@@ -356,32 +288,6 @@ export function VmStatusCard() {
             </>
           )}
         </div>
-      </div>
-
-      <div className={classes.section}>
-        <h3 className={classes.sectionTitle}>Pipeline processes</h3>
-        <ol className={classes.steps}>
-          {rows.map(row => (
-            <li key={row.process} className={classes.step}>
-              <div>
-                <div className={classes.stepLabel}>{row.label}</div>
-                <div className={classes.stepDesc}>{row.description}</div>
-              </div>
-              <span
-                className={classes.stepStatus}
-                style={
-                  row.status === 'failed' ? { color: vmColors.redText } : {}
-                }
-              >
-                <i
-                  className={classes.stepDot}
-                  style={{ background: statusDot(row.status) }}
-                />
-                {statusLabel(row.status)}
-              </span>
-            </li>
-          ))}
-        </ol>
       </div>
 
       <div className={classes.section}>
