@@ -100,7 +100,6 @@ try {
   await taskLink.waitFor({ timeout: 15000 }).catch(() => {});
   if (await taskLink.count()) {
     await taskLink.click();
-    await expect(page.getByText('Workflow stages')).toBeVisible();
     await expect
       .poll(() => polls.length, { timeout: 15000 })
       .toBeGreaterThan(0);
@@ -108,6 +107,42 @@ try {
     console.log('TASK PAGE LIVE PASS: events delivered by long polling');
   } else {
     console.log('TASK PAGE LIVE SKIPPED: no tasks for this user');
+  }
+
+  // Orchestrator run page: the newest visible VM run, read-only (never presses Retry/Skip).
+  const summary = await page.evaluate(async () => {
+    const response = await fetch('/api/vms/summary', {
+      headers: {
+        Authorization: `Bearer ${
+          (
+            await (
+              await fetch('/api/auth/password/refresh', {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+              })
+            ).json()
+          ).backstageIdentity.token
+        }`,
+      },
+    });
+    return response.ok ? response.json() : { vms: [], status: response.status };
+  });
+  if (!Array.isArray(summary.vms))
+    throw new Error(`Run summary failed: ${summary.status}`);
+  const latest = summary.vms
+    .map(vm => vm.latest)
+    .sort((a, b) => b.id - a.id)[0];
+  if (latest) {
+    await page.goto(`${base}/vms/runs/${latest.id}`);
+    const stages = page.getByRole('list', { name: 'Run stages' });
+    await expect(stages).toBeVisible();
+    await expect(stages.getByRole('listitem')).toHaveCount(
+      latest.stages.length,
+    );
+    console.log(
+      `RUN PAGE LIVE PASS: run #${latest.id} (${latest.kind} ${latest.name}, ${latest.status}) shows ${latest.stages.length} stages`,
+    );
+  } else {
+    console.log('RUN PAGE LIVE SKIPPED: no VM runs visible to this user');
   }
 
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);

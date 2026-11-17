@@ -5,26 +5,35 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 
 ## Custom code
 
-- `plugins/vm-status`: one frontend entity card, only for `Resource` / `spec.type: vm`.
-  It renders every workflow process from catalog annotations, desired compute/configuration/billing/tags
-  from the entity's structured `spec` (not duplicated annotations), polls every 10 seconds until ready/failed,
-  and links to the full Actions run, certificate, destroy and refry templates. It never calls the GitHub
-  run API with a shared token. While `cf/status` is `destroying` it offers only the destroy run link
-  (the destroy workflow records no per-step progress); when a refresh finds the entity removed from the
-  catalog it shows "Destroyed" with the run link and a link back to Resources, and stops polling.
-  Desired software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
-  Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
-  not organizational billing authorization. The request form's `VmTagsEditor` field
-  (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
-  `project_code` rows and optional extra tags; `/api/vms/requests` rejects requests without them. Custom spec validation is
-  performed by the platform workflow; malformed custom fields are rendered defensively by the card.
-  It also exports the shared pipeline helpers and `PipelineLine` (the eight stations drawn as a transit
-  line; skipped stages are drawn as non-stops) used by the home page. For VM entities only it supplies
-  an `EntityHeaderLayoutBlueprint` header (size bullet, name, team, OS/platform, lifecycle, inventory
-  source link, favourite star) and an `EntityContentLayoutBlueprint` layout that puts the VM card first.
-  The stock About card is hidden for VMs through `entity-card:catalog/about` config (`$not` filter);
-  other entities keep it. The custom header does not render the stock entity context menu (unregister,
-  inspect) on VM pages; destroy remains the supported way to remove a VM.
+- `plugins/vm-status`: the VM entity card, the run page and the shared run helpers, only for
+  `Resource` / `spec.type: vm`. All run data comes from the `vms` backend API (`runs.ts`), never from a
+  browser GitHub token.
+  - **Run page** `/vms/runs/<id>` (`RunView.tsx`, a `PageBlueprint`): run header (kind, VM, status,
+    requester, times, error) and the run's stages in order, each with status, attempt `n/max`, a retry
+    countdown, error, link to the GitHub run of the current or last attempt, expandable job steps,
+    earlier attempts, and `skippedBy`/`retriedBy`. **Retry** and **Skip** appear only when the API's
+    `actions` allow them; Skip asks for confirmation and says the stage's work will not be applied.
+    It polls every 5 seconds while the run is running and works before the VM's catalog entity exists,
+    which is why VM templates link here.
+  - **VM card**: the VM's latest run (same view, polled while running), access facts, SSH command and
+    links to certificate, refry and destroy. With no known run it falls back to `cf/status`. When a
+    refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
+  - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Desired
+    software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
+    Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
+    not organizational billing authorization. The request form's `VmTagsEditor` field
+    (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
+    `project_code` rows and optional extra tags; `/api/vms/requests` rejects requests without them.
+    Custom spec validation is performed by the platform `register` stage; malformed custom fields are
+    rendered defensively by the card.
+  - It also exports `PipelineLine` (the run's stages drawn as a transit line; skipped stages are
+    non-stops; refry and destroy runs draw their own stages) and the summary hook used by Home and
+    Resources. For VM entities only it supplies an `EntityHeaderLayoutBlueprint` header (size bullet,
+    name, team, OS/platform, lifecycle, inventory source link, favourite star) and an
+    `EntityContentLayoutBlueprint` layout that puts the VM card first.
+    The stock About card is hidden for VMs through `entity-card:catalog/about` config (`$not` filter);
+    other entities keep it. The custom header does not render the stock entity context menu (unregister,
+    inspect) on VM pages; destroy remains the supported way to remove a VM.
 - `packages/app/src/SettingsGeneral.tsx`: overrides `sub-page:user-settings/general` with only the
   profile and identity cards (the app is light-only and has no sidebar to pin).
 - `packages/app/src/theme/`: the Compute Factory look (see `packages/app/DESIGN.md`). `cfTheme.tsx`
@@ -36,9 +45,9 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   search modal, settings and the signed-in user).
 - `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` layout that replaces the widget grid
   with the team's VMs: status counts as filters, and each VM's pipeline line and next action
-  (Get SSH certificate when ready, View run while building or failed). It reads the same catalog
-  annotations as the VM card, polls every 10 seconds and is team-scoped by the existing catalog
-  permission policy (admins see every VM).
+  (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
+  make one `GET /api/vms/summary` request per refresh (every 5 seconds) and join it by VM name,
+  falling back to `cf/status`; both are team-scoped (admins see every VM).
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
@@ -70,13 +79,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
-- `packages/app/src/WorkflowTasks.tsx`: augments the stock Scaffolder task detail page with a
-  horizontally scrollable stage view, individual job status/duration and expandable step details.
-  It reads versioned snapshots from the existing task-owned event stream, not a browser GitHub token
-  or a new privileged run endpoint. Updates arrive about every 10 seconds; reload replays stored
-  snapshots. Existing task controls, logs, output links, task lists and default form fields are retained.
-  Tasks started before this feature keep their original text logs. A stopped monitor displays the last
-  observed state with a warning; cancellation does not imply that the GitHub workflow was cancelled.
+- The Scaffolder task page is the stock one. VM tasks finish once their run is created and link to
+  the run page; the earlier GitHub-job stage view on the task page was removed with `cf:watch-workflow`.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
 - `packages/app/src/taskEventPolling.ts`: the task page receives task events by **long polling**
@@ -361,19 +365,19 @@ Backend build bundles the frontend. The Dockerfile uses Backstage's host-build
 skeleton/bundle approach and installs Linux-native production dependencies in
 the arm64 image; it never copies macOS node_modules. `openssh-client` is present.
 This POC does not use unit-test scaffolding. Verification uses static checks, the platform's existing
-offline workflow integration check, and focused browser smoke checks. Browser checks exercise
-expandable steps and unchanged task controls; fixture data alone does not verify a real VM run.
-The task fixture serves `/events` as a long-poll endpoint, fails if the page opens `/eventstream`, and
-checks that a changed workflow snapshot appears without a page reload. Against a built (hashed)
-frontend it also simulates a deploy and checks that the new-version banner appears; on the dev
-server that check is skipped.
+offline workflow integration check, and focused browser smoke checks. Browser checks cover the run
+page (running, retrying with countdown, failed with Retry/Skip, Skip confirmation, succeeded, earlier
+attempts, API errors, polling stop/resume), the VM card's latest run and destroyed state, the list
+summary join and fallback, the demo panel's `vms` routes, and unchanged stock task controls; fixture
+data alone does not verify a real VM run. The task fixture serves `/events` as a long-poll endpoint and
+fails if the page opens `/eventstream`. Against a built (hashed) frontend it also simulates a deploy
+and checks that the new-version banner appears; on the dev server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
 frontend without signing in, dispatching a workflow or changing backend state.
 `scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's
 gitignored `.poc-passwords`) and checks, read-only, the request form's live instance types and AWS
-specs and that the newest own task page receives events by long polling. Run it after every deploy. It also checks the
-Resource catalog default, normal-user kind restrictions, admin kind selection/deep links, the VM
-card, and the home page's VM table, pipeline line, next action and empty filter state.
+specs, that the newest own task page receives events by long polling, and that the newest visible VM
+run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy.
 
 ## Deploy
 
