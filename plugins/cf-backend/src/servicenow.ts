@@ -152,7 +152,8 @@ export function createServiceNowClient(auth: AuthService, config: Config) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
-      redirect: 'error',
+      // Never follow a redirect; a 3xx is an unexpected (permanent) answer below.
+      redirect: 'manual',
       signal: AbortSignal.timeout(10000),
     });
     if (response.status !== 201) {
@@ -161,7 +162,15 @@ export function createServiceNowClient(auth: AuthService, config: Config) {
         throw new Error(failure);
       throw new PermanentError(failure);
     }
-    const result = await response.json().catch(() => undefined);
+    // A body read that times out or breaks propagates as a transient error; only a
+    // complete but malformed body is permanent.
+    const text = await response.text();
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch {
+      result = undefined;
+    }
     if (
       !result ||
       result.mock !== true ||

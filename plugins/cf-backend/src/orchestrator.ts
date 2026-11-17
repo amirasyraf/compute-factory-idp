@@ -678,6 +678,13 @@ export function createOrchestrator(options: {
         Number(current.next_attempt_at) <= Date.now());
     if (handler) {
       // In-process attempts finish within the tick; `running` here means a restart interrupted one.
+      if (current.status === 'running')
+        // Keep the interrupted attempt in the history before starting the next one.
+        await updateStage(current, {
+          conclusion: 'interrupted',
+          error: 'Interrupted by an IDP restart',
+          finished_at: Date.now(),
+        });
       if (due || current.status === 'running')
         await execute(run, current, handler);
     } else if (due) await dispatch(run, current);
