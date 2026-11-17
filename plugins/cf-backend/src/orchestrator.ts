@@ -257,56 +257,59 @@ export function createOrchestrator(options: {
     return { attempts: JSON.stringify(attempts), conclusion: null };
   };
 
-  async function activeRuns(name: string) {
-    return (
-      await db<Run>('vm_runs')
-        .where({ name })
-        .whereIn('status', ['running', 'failed'])
-    ).map(runRow);
-  }
-
-  async function cancel(run: Run, reason: string) {
-    await db<Stage>('vm_run_stages')
+  /** Cancel a run's remaining stages and the run itself, inside the caller's transaction. */
+  async function cancel(run: Run, reason: string, trx: Database) {
+    await trx<Stage>('vm_run_stages')
       .where({ run_id: run.id })
       .whereIn('status', ['pending', 'running', 'retrying'])
       .update({ status: 'cancelled', next_attempt_at: null });
-    await touch(run.id, {
+    await trx<Run>('vm_runs').where({ id: run.id }).update({
       status: 'cancelled',
       error: reason,
       finished_at: Date.now(),
+      updated_at: Date.now(),
     });
     logger.info(
       `VM run ${run.id} (${run.kind} ${run.name}) cancelled: ${reason}`,
     );
   }
 
-  /** Create a run, or return the existing run for the same request key. Callers serialize. */
+  /**
+   * Create a run (cancelling the runs it supersedes) in one transaction, or return the existing
+   * run for the same request key. Pass `trx` to commit together with the caller's own writes.
+   * Callers serialize.
+   */
   async function createRun(
     input: NewRun,
+    trx?: Database,
   ): Promise<{ run: Run; created: boolean }> {
-    const existing = await db<Run>('vm_runs')
-      .where({ request_key: input.requestKey })
-      .first();
-    if (existing) return { run: runRow(existing), created: false };
-    const active = await activeRuns(input.name);
-    // Destroy supersedes everything; a new refry supersedes only a failed refry. A running run,
-    // or an incomplete (failed) provision, must be retried, skipped or destroyed first.
-    const blocking = active.find(
-      run =>
-        input.kind !== 'destroy' &&
-        !(
-          input.kind === 'refry' &&
-          run.kind === 'refry' &&
-          run.status === 'failed'
-        ),
-    );
-    if (blocking)
-      throw new RunConflict(
-        `VM ${input.name} already has an active ${blocking.kind} run (#${blocking.id}); retry, skip or destroy it first`,
+    const work = async (t: Database) => {
+      const existing = await t<Run>('vm_runs')
+        .where({ request_key: input.requestKey })
+        .first();
+      if (existing) return { run: runRow(existing), created: false };
+      const active = (
+        await t<Run>('vm_runs')
+          .where({ name: input.name })
+          .whereIn('status', ['running', 'failed'])
+      ).map(runRow);
+      // Destroy supersedes everything; a new refry supersedes only a failed refry. A running run,
+      // or an incomplete (failed) provision, must be retried, skipped or destroyed first.
+      const blocking = active.find(
+        run =>
+          input.kind !== 'destroy' &&
+          !(
+            input.kind === 'refry' &&
+            run.kind === 'refry' &&
+            run.status === 'failed'
+          ),
       );
-    const now = Date.now();
-    const id = await db.transaction(async trx => {
-      const [inserted] = await trx<Run>('vm_runs')
+      if (blocking)
+        throw new RunConflict(
+          `VM ${input.name} already has an active ${blocking.kind} run (#${blocking.id}); retry, skip or destroy it first`,
+        );
+      const now = Date.now();
+      const [inserted] = await t<Run>('vm_runs')
         .insert({
           kind: input.kind,
           name: input.name,
@@ -323,25 +326,28 @@ export function createOrchestrator(options: {
           finished_at: null,
         })
         .returning('id');
-      const runId = Number(
+      const id = Number(
         typeof inserted === 'object'
           ? (inserted as { id: number }).id
           : inserted,
       );
-      await trx('vm_run_stages').insert(
+      await t('vm_run_stages').insert(
         plan(input.kind, input.params).map(stage => ({
           ...stage,
-          run_id: runId,
+          run_id: id,
         })),
       );
-      return runId;
-    });
-    for (const run of active)
-      await cancel(run, `Superseded by ${input.kind} run #${id}`);
-    logger.info(
-      `VM run ${id} created: ${input.kind} ${input.name} by ${input.requestedBy}`,
-    );
-    return { run: (await getRun(id))!, created: true };
+      for (const run of active)
+        await cancel(run, `Superseded by ${input.kind} run #${id}`, t);
+      logger.info(
+        `VM run ${id} created: ${input.kind} ${input.name} by ${input.requestedBy}`,
+      );
+      return {
+        run: runRow((await t<Run>('vm_runs').where({ id }).first())!),
+        created: true,
+      };
+    };
+    return trx ? work(trx) : db.transaction(work);
   }
 
   function inputsFor(run: Run, stage: Stage, attempt: number) {
@@ -658,25 +664,37 @@ export function createOrchestrator(options: {
     return { stages, failed };
   }
 
+  // Reset the target (and finalize) and reopen the run in one transaction.
   async function reopen(
     run: Run,
     stages: Stage[],
     target: Stage,
     patch: Partial<Stage>,
   ) {
-    await updateStage(target, { ...archive(target), ...patch });
     const finalize = stages.find(stage => stage.stage === 'finalize')!;
-    if (finalize !== target && finalize.status !== 'pending')
-      await updateStage(finalize, {
-        ...archive(finalize),
-        status: 'pending',
-        outcome: null,
-        budget_start: finalize.attempt,
+    await db.transaction(async trx => {
+      const set = (stage: Stage, values: Partial<Stage>) =>
+        trx<Stage>('vm_run_stages')
+          .where({ run_id: stage.run_id, stage: stage.stage })
+          .update(values);
+      await set(target, { ...archive(target), ...patch });
+      if (finalize !== target && finalize.status !== 'pending')
+        await set(finalize, {
+          ...archive(finalize),
+          status: 'pending',
+          outcome: null,
+          budget_start: finalize.attempt,
+          error: null,
+          finished_at: null,
+          next_attempt_at: null,
+        });
+      await trx<Run>('vm_runs').where({ id: run.id }).update({
+        status: 'running',
         error: null,
         finished_at: null,
-        next_attempt_at: null,
+        updated_at: Date.now(),
       });
-    await touch(run.id, { status: 'running', error: null, finished_at: null });
+    });
   }
 
   async function retry(run: Run, user: string) {

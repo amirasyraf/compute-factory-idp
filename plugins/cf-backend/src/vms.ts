@@ -310,11 +310,6 @@ export const vmsPlugin = createBackendPlugin({
               await exclusive(async () => {
                 // Re-read inside the queue: the engine may have changed the run meanwhile.
                 const current = (await orchestrator.getRun(run.id))!;
-                if (action === 'retry') {
-                  // Demo admission may have released a provision that never registered.
-                  const blocked = await vmDemo.retryBlocked(current);
-                  if (blocked) throw new RunConflict(blocked);
-                }
                 await orchestrator[action](current, info.user);
               });
               res.json(

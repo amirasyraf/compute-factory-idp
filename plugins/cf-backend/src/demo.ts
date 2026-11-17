@@ -192,7 +192,7 @@ export function createDemo(options: {
       return vm;
     });
     const present = new Set(inventory.map(vm => vm.name));
-    const released: Vm[] = [];
+    const released: { row: Vm; run?: Run }[] = [];
     for (const row of rows.filter(vm => !present.has(vm.name))) {
       const run = row.provision_run_id
         ? await orchestrator.getRun(Number(row.provision_run_id))
@@ -203,15 +203,24 @@ export function createDemo(options: {
         !run ||
         ['failed', 'cancelled', 'succeeded'].includes(run.status)
       )
-        released.push(row);
+        released.push({ row, run });
     }
     await db.transaction(async trx => {
       if (inventory.length)
         await trx<Vm>('demo_vms').insert(inventory).onConflict('name').merge();
-      for (const row of released)
+      for (const { row, run } of released) {
         await trx<Vm>('demo_vms')
           .where({ name: row.name, request_id: row.request_id })
           .delete();
+        // A failed provision that never registered cannot come back once its slot is
+        // released; retire it so the name is free for a new request.
+        if (!row.seen && run?.status === 'failed')
+          await orchestrator.cancel(
+            run,
+            'Released: the VM was never registered; submit a new request',
+            trx,
+          );
+      }
     });
     blobs = nextBlobs;
     lastScan = Date.now();
@@ -504,57 +513,54 @@ export function createDemo(options: {
             '3 VM limit reached. Wait until a VM is fully destroyed before requesting another.',
         },
       };
-    await db<Vm>('demo_vms').insert({
-      name,
-      request_id: requestId,
-      requested_by: info.user,
-      team,
-      requested_at: Date.now(),
-      ready_at: null,
-      failed_at: null,
-      status: 'reserved',
-      seen: false,
-      spec_hash: hash,
-      provision_run_id: null,
-      cleanup_generation: null,
-      cleanup_reason: null,
-      cleanup_run_id: null,
-      error: null,
-    });
     try {
-      const { run } = await orchestrator.createRun({
-        kind: 'provision',
-        name,
-        team,
-        requestId,
-        requestKey: `provision:${requestId}`,
-        requestedBy: info.user,
-        requesterTeams: info.teams,
-        params: { spec },
+      // Reservation, run and their link commit together.
+      const runId = await db.transaction(async trx => {
+        await trx<Vm>('demo_vms').insert({
+          name,
+          request_id: requestId,
+          requested_by: info.user,
+          team,
+          requested_at: Date.now(),
+          ready_at: null,
+          failed_at: null,
+          status: 'reserved',
+          seen: false,
+          spec_hash: hash,
+          provision_run_id: null,
+          cleanup_generation: null,
+          cleanup_reason: null,
+          cleanup_run_id: null,
+          error: null,
+        });
+        const { run } = await orchestrator.createRun(
+          {
+            kind: 'provision',
+            name,
+            team,
+            requestId,
+            requestKey: `provision:${requestId}`,
+            requestedBy: info.user,
+            requesterTeams: info.teams,
+            params: { spec },
+          },
+          trx,
+        );
+        await trx<Vm>('demo_vms')
+          .where({ name })
+          .update({ provision_run_id: run.id });
+        return run.id;
       });
-      await db<Vm>('demo_vms')
-        .where({ name })
-        .update({ provision_run_id: run.id });
       return {
         status: 200,
-        body: { runId: run.id, runUrl: orchestrator.runUrl(run.id) },
+        body: { runId, runUrl: orchestrator.runUrl(runId) },
       };
     } catch (error) {
-      await db<Vm>('demo_vms').where({ name, request_id: requestId }).delete();
       if (error instanceof RunConflict)
         return { status: 409, body: { error: error.message } };
       throw error;
     }
   }
 
-  /** A provision run whose reservation was released (never registered) cannot come back. */
-  async function retryBlocked(run: Run): Promise<string | null> {
-    if (run.kind !== 'provision' || !automation) return null;
-    const row = await db<Vm>('demo_vms')
-      .where({ request_id: run.request_id })
-      .first();
-    return row ? null : 'This request was released; submit a new VM request';
-  }
-
-  return { sweep, state, settings, cleanupCheck, request, retryBlocked };
+  return { sweep, state, settings, cleanupCheck, request };
 }
