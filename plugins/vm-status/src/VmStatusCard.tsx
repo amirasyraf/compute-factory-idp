@@ -1,4 +1,5 @@
-import { ReactNode, useState } from 'react';
+import { ReactNode, Suspense, lazy, useState } from 'react';
+import { stringifyEntityRef } from '@backstage/catalog-model';
 import { InfoCard, Link } from '@backstage/core-components';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { Button, makeStyles } from '@material-ui/core';
@@ -11,6 +12,10 @@ import { deriveVm, useVmLive } from './vmLive';
 import { modifyUrl } from './VmActions';
 
 const SSH_CERT = '/create/templates/default/ssh-cert';
+// xterm.js loads only when someone opens a terminal.
+const VmTerminal = lazy(() =>
+  import('./VmTerminal').then(m => ({ default: m.VmTerminal })),
+);
 
 const useStyles = makeStyles(theme => ({
   grid: {
@@ -72,11 +77,6 @@ const useStyles = makeStyles(theme => ({
     fontSize: 14,
     textDecoration: 'none',
     '&:hover': { textDecoration: 'none', background: 'rgba(11,95,211,.06)' },
-  },
-  primary: {
-    background: vmColors.blue,
-    color: '#fff',
-    '&:hover': { background: '#0A4FB0' },
   },
   action: {
     fontSize: 14,
@@ -177,6 +177,7 @@ export function VmStatusCard() {
   const desired = getVmConfiguration(entity.spec);
   const annotations = entity.metadata.annotations ?? {};
   const vm = deriveVm(entity, live);
+  const [terminal, setTerminal] = useState(false);
   const runs = live.runs ?? [];
   const current =
     vm.latest &&
@@ -221,7 +222,22 @@ export function VmStatusCard() {
       </p>
     );
   else if (vm.ip && vm.state !== 'building')
-    connect = <CopyCommand command={`ssh ${vm.user}@${vm.ip}`} />;
+    connect = (
+      <>
+        <CopyCommand command={`ssh ${vm.user}@${vm.ip}`} />
+        {vm.state === 'ready' && (
+          <Button
+            variant="contained"
+            color="primary"
+            className={classes.button}
+            style={{ marginRight: 10 }}
+            onClick={() => setTerminal(true)}
+          >
+            Open terminal
+          </Button>
+        )}
+      </>
+    );
   else
     connect = (
       <p className={classes.note}>
@@ -250,17 +266,23 @@ export function VmStatusCard() {
       <div className={classes.column}>
         <InfoCard title="Connect">
           {connect}
-          <Link
-            to={SSH_CERT}
-            className={`${classes.link} ${
-              vm.state === 'ready' ? classes.primary : ''
-            }`}
-          >
+          <Link to={SSH_CERT} className={classes.link}>
             Get SSH certificate
           </Link>
+          {terminal && (
+            <Suspense fallback={null}>
+              <VmTerminal
+                vmRef={stringifyEntityRef(entity)}
+                name={entity.metadata.name}
+                open={terminal}
+                onClose={() => setTerminal(false)}
+              />
+            </Suspense>
+          )}
           <p className={classes.muted} style={{ marginTop: 10 }}>
-            Sign your public key for 12 hours of access as{' '}
-            <span className={classes.mono}>{vm.user}</span> to your team's VMs.
+            Open a terminal here, or sign your own public key for 12 hours of
+            access as <span className={classes.mono}>{vm.user}</span> to your
+            team's VMs from your machine.
           </p>
         </InfoCard>
 

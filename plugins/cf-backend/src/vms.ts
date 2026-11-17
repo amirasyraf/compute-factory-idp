@@ -16,6 +16,7 @@ import {
   initializeOrchestrator,
 } from './orchestrator';
 import { createObserver } from './observed';
+import { TerminalLimit, createTerminals } from './terminal';
 
 const OPERATIONS: Record<string, RunKind> = {
   modify: 'modify',
@@ -127,6 +128,8 @@ export const vmsPlugin = createBackendPlugin({
         }
         // The health check reads EC2 only where VM automation runs (production).
         const observer = automation ? createObserver(logger) : undefined;
+        // The terminal reaches real VMs with a CA-signed key: production only, like automation.
+        const terminals = automation ? createTerminals(logger) : undefined;
         const orchestrator = createOrchestrator({
           db,
           logger,
@@ -177,6 +180,41 @@ export const vmsPlugin = createBackendPlugin({
               else next(error);
             }
           };
+
+        /** A VM the caller may operate on: its entity, team and incarnation (request ID). */
+        const readVm = async (
+          credentials: Awaited<ReturnType<typeof httpAuth.credentials>>,
+          info: Caller,
+          name: string,
+        ) => {
+          // The catalog permission policy only lets owners (and admins) read VM entities.
+          const entity = await catalog.getEntityByRef(
+            { kind: 'Resource', namespace: 'default', name },
+            { credentials },
+          );
+          const team = /^group:default\/([a-z][a-z0-9-]*)$/.exec(
+            String(entity?.spec?.owner ?? ''),
+          )?.[1];
+          if (!entity || entity.spec?.type !== 'vm' || !team)
+            return {
+              ok: false,
+              status: 404,
+              error: `VM ${name} not found`,
+            } as const;
+          if (!info.admin && !info.teams.includes(team))
+            return {
+              status: 403,
+              error: 'VM belongs to another team',
+            } as const;
+          const requestId = entity.metadata.annotations?.['cf/request-id'];
+          if (!requestId)
+            return {
+              ok: false,
+              status: 409,
+              error: 'VM inventory has no request ID',
+            } as const;
+          return { ok: true, entity, team, requestId } as const;
+        };
 
         const router = express.Router();
         router.use(express.json({ limit: '64kb' }));
@@ -268,27 +306,12 @@ export const vmsPlugin = createBackendPlugin({
               res.status(400).json({ error: 'Invalid VM operation' });
               return;
             }
-            // The catalog permission policy only lets owners (and admins) read VM entities.
-            const entity = await catalog.getEntityByRef(
-              { kind: 'Resource', namespace: 'default', name: ref.name },
-              { credentials },
-            );
-            const team = /^group:default\/([a-z][a-z0-9-]*)$/.exec(
-              String(entity?.spec?.owner ?? ''),
-            )?.[1];
-            if (!entity || entity.spec?.type !== 'vm' || !team) {
-              res.status(404).json({ error: `VM ${ref.name} not found` });
+            const found = await readVm(credentials, info, ref.name);
+            if (!found.ok) {
+              res.status(found.status).json({ error: found.error });
               return;
             }
-            if (!info.admin && !info.teams.includes(team)) {
-              res.status(403).json({ error: 'VM belongs to another team' });
-              return;
-            }
-            const requestId = entity.metadata.annotations?.['cf/request-id'];
-            if (!requestId) {
-              res.status(409).json({ error: 'VM inventory has no request ID' });
-              return;
-            }
+            const { entity, team, requestId } = found;
             const key = `${operation}:${requestKey}`;
             const repeated = await orchestrator.findByRequestKey(key);
             const spec = record(entity.spec);
@@ -392,6 +415,141 @@ export const vmsPlugin = createBackendPlugin({
               return;
             }
             res.json({ runId: run.id, runUrl: orchestrator.runUrl(run.id) });
+          }),
+        );
+
+        // Browser terminal (CONTRACTS.md §8.4): open, then exchange input/output by short requests.
+        router.post(
+          '/terminal',
+          route(async (req, res) => {
+            const credentials = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            const info = await caller(req);
+            if (!terminals) {
+              res.status(503).json({
+                error: 'The terminal is disabled in this environment',
+              });
+              return;
+            }
+            const { vm, cols, rows } = req.body ?? {};
+            const size = (value: unknown, max: number) =>
+              Number.isInteger(value) &&
+              Number(value) >= 10 &&
+              Number(value) <= max;
+            let name: string | undefined;
+            try {
+              const ref = parseEntityRef(String(vm ?? ''));
+              if (
+                ref.kind.toLowerCase() === 'resource' &&
+                ref.namespace === 'default'
+              )
+                name = ref.name;
+            } catch {
+              name = undefined;
+            }
+            if (
+              !name ||
+              !/^[a-z][a-z0-9-]{2,20}$/.test(name) ||
+              !size(cols, 500) ||
+              !size(rows, 200)
+            ) {
+              res.status(400).json({ error: 'Invalid terminal request' });
+              return;
+            }
+            const found = await readVm(credentials, info, name);
+            if (!found.ok) {
+              res.status(found.status).json({ error: found.error });
+              return;
+            }
+            // Connect to the address AWS reports for this incarnation (inventory can lag a console start).
+            const seen = observer?.get(name);
+            const instance = seen?.requestId === found.requestId ? seen : null;
+            const fresh =
+              Date.now() - Date.parse(observer?.status().checkedAt ?? '') <
+              OBSERVED_FRESH_MS;
+            if (fresh && instance?.state !== 'running') {
+              res.status(409).json({
+                error: instance
+                  ? `The VM is ${instance.state}; start it first`
+                  : 'No instance for this VM was found in AWS',
+              });
+              return;
+            }
+            const host =
+              instance?.publicIp ||
+              found.entity.metadata.annotations?.['cf/public-ip'];
+            if (!host || !/^[0-9]+(\.[0-9]+){3}$/.test(host)) {
+              res
+                .status(409)
+                .json({ error: 'The VM has no public IP address' });
+              return;
+            }
+            try {
+              const session = await terminals.open({
+                user: info.user,
+                vm: name,
+                host,
+                // The VM trusts team-<owner> and team-platform-admins (CONTRACTS.md §3).
+                principal: info.teams.includes(found.team)
+                  ? `team-${found.team}`
+                  : 'team-platform-admins',
+                cols,
+                rows,
+              });
+              res.json({ ...session, host, user: 'ubuntu' });
+            } catch (error) {
+              if (error instanceof TerminalLimit)
+                res.status(429).json({ error: error.message });
+              else throw error;
+            }
+          }),
+        );
+        router.get(
+          '/terminal/:id/output',
+          route(async (req, res) => {
+            const info = await caller(req);
+            const after = Number(req.query.after ?? 0);
+            const output = await terminals?.read(
+              req.params.id,
+              info.user,
+              Number.isSafeInteger(after) ? after : 0,
+            );
+            if (!output)
+              res.status(404).json({ error: 'Terminal session not found' });
+            else res.json(output);
+          }),
+        );
+        router.post(
+          '/terminal/:id/input',
+          route(async (req, res) => {
+            const info = await caller(req);
+            const { data, cols, rows } = req.body ?? {};
+            let ok = false;
+            if (typeof data === 'string' && data.length <= 16384)
+              ok = Boolean(terminals?.input(req.params.id, info.user, data));
+            else if (Number.isInteger(cols) && Number.isInteger(rows))
+              ok = Boolean(
+                terminals?.resize(
+                  req.params.id,
+                  info.user,
+                  Math.min(Math.max(cols, 10), 500),
+                  Math.min(Math.max(rows, 5), 200),
+                ),
+              );
+            if (ok) res.json({});
+            else
+              res
+                .status(404)
+                .json({ error: 'Terminal session not found or closed' });
+          }),
+        );
+        router.delete(
+          '/terminal/:id',
+          route(async (req, res) => {
+            const info = await caller(req);
+            terminals?.close(req.params.id, info.user);
+            res.json({});
           }),
         );
 

@@ -140,6 +140,30 @@ export function useVmsApi() {
         vm: string;
         requestKey: string;
       }) => request<{ runId: number; runUrl: string }>('/runs', 'POST', body),
+      /** Browser terminal: one SSH session from the IDP to the VM (long-polled output). */
+      terminal: {
+        open: (vm: string, cols: number, rows: number) =>
+          request<{ id: string; host: string; user: string }>(
+            '/terminal',
+            'POST',
+            { vm, cols, rows },
+          ),
+        output: (id: string, after: number) =>
+          request<{ seq: number; data: string; closed: string | null }>(
+            `/terminal/${encodeURIComponent(id)}/output?after=${after}`,
+          ),
+        input: (id: string, data: string) =>
+          request<{}>(`/terminal/${encodeURIComponent(id)}/input`, 'POST', {
+            data,
+          }),
+        resize: (id: string, cols: number, rows: number) =>
+          request<{}>(`/terminal/${encodeURIComponent(id)}/input`, 'POST', {
+            cols,
+            rows,
+          }),
+        close: (id: string) =>
+          request<{}>(`/terminal/${encodeURIComponent(id)}`, 'DELETE'),
+      },
     };
   }, [discovery, fetchApi]);
 }

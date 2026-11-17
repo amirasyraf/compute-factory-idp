@@ -3956,6 +3956,7 @@ __metadata:
     "@backstage/plugin-scaffolder-node": "npm:^0.13.8"
     "@types/express": "npm:^4.17.25"
     express: "npm:^4.22.1"
+    node-pty: "npm:^1.1.0"
     yaml: "npm:^2.9.1"
   languageName: unknown
   linkType: soft
@@ -3972,6 +3973,8 @@ __metadata:
     "@backstage/plugin-catalog-react": "npm:^3.3.0"
     "@material-ui/core": "npm:^4.12.2"
     "@material-ui/icons": "npm:^4.9.1"
+    "@xterm/addon-fit": "npm:^0.10.0"
+    "@xterm/xterm": "npm:^5.5.0"
   peerDependencies:
     react: ^18.0.2
     react-dom: ^18.0.2
@@ -8047,6 +8050,22 @@ __metadata:
   version: 1.9.5
   resolution: "@xobotyi/scrollbar-width@npm:1.9.5"
   checksum: 10c0/4ebc79e4f798e2a5e89a5122f8fc4a086f08a92a44ac020599c4fe20d105b7d76ba06c094260b5f386a75e7ce6f6c518d9fc295228b651296b99c4477f986ac4
+  languageName: node
+  linkType: hard
+
+"@xterm/addon-fit@npm:^0.10.0":
+  version: 0.10.0
+  resolution: "@xterm/addon-fit@npm:0.10.0"
+  peerDependencies:
+    "@xterm/xterm": ^5.0.0
+  checksum: 10c0/76926120fc940376afef2cb68b15aec2a99fc628b6e3cc84f2bcb1682ca9b87f982b3c10ff206faf4ebc5b410467b81a7b5e83be37b4ac386586f472e4fa1c61
+  languageName: node
+  linkType: hard
+
+"@xterm/xterm@npm:^5.5.0":
+  version: 5.5.0
+  resolution: "@xterm/xterm@npm:5.5.0"
+  checksum: 10c0/358801feece58617d777b2783bec68dac1f52f736da3b0317f71a34f4e25431fb0b1920244f678b8d673f797145b4858c2a5ccb463a4a6df7c10c9093f1c9267
   languageName: node
   linkType: hard
 
@@ -17200,6 +17219,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"node-addon-api@npm:^7.1.0":
+  version: 7.1.1
+  resolution: "node-addon-api@npm:7.1.1"
+  dependencies:
+    node-gyp: "npm:latest"
+  checksum: 10c0/fb32a206276d608037fa1bcd7e9921e177fe992fc610d098aa3128baca3c0050fc1e014fa007e9b3874cf865ddb4f5bd9f43ccb7cbbbe4efaff6a83e920b17e9
+  languageName: node
+  linkType: hard
+
 "node-emoji@npm:^2.2.0":
   version: 2.2.0
   resolution: "node-emoji@npm:2.2.0"
@@ -17289,6 +17317,16 @@ __metadata:
   version: 1.0.1
   resolution: "node-hex@npm:1.0.1"
   checksum: 10c0/de7ba2d1531306bcd9ab73973048c9220f10cbb2c2e69682635f1051fb999674674104105ca2bb2313dc6a01a4ea664df44afc8157c726aebe51b78279ae7a92
+  languageName: node
+  linkType: hard
+
+"node-pty@npm:^1.1.0":
+  version: 1.1.0
+  resolution: "node-pty@npm:1.1.0"
+  dependencies:
+    node-addon-api: "npm:^7.1.0"
+    node-gyp: "npm:latest"
+  checksum: 10c0/e527305263da36d554b7d2116aee6430b898675fc50e7bd82fbd762f14cb6b948fb8d997736af1f70d76bf9ffd4f5179bc1ed1d8002567dfcf3b29f039291798
   languageName: node
   linkType: hard
 

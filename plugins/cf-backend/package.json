@@ -26,6 +26,7 @@
     "@backstage/plugin-scaffolder-backend": "^4.2.1",
     "@backstage/plugin-scaffolder-node": "^0.13.8",
     "express": "^4.22.1",
+    "node-pty": "^1.1.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {

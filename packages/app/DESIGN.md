@@ -378,8 +378,11 @@ The stock About card is hidden only for VMs. The header and body share one polle
 (`vmLive.ts`): the last 10 runs (`/runs?name=<vm>&limit=10`, every five seconds), the
 health check (`/observed/<vm>`, every 15 seconds) and the catalog entity (every ten seconds,
 to follow Modify and discover destruction). The body is a two-column grid (one column below
-1100px): **Connect** (copyable `ssh` command from the observed public IP, Get SSH certificate,
-promoted when ready; a stopped VM explains that starting gives a new IP), **Activity** (the
+1100px): **Connect** (copyable `ssh` command from the observed public IP, a primary **Open
+terminal** button when ready, Get SSH certificate; a stopped VM explains that starting gives a new
+IP). Open terminal shows a large dialog with an xterm.js screen on the ink background (JetBrains
+Mono 13px), the `ubuntu@<ip>` status (red "Disconnected: <reason>" when closed, with Reconnect),
+and Close; **Activity** (the
 active or failed run's compact summary with Retry/Skip, then a History list of runs with kind,
 status, requester and time, each linking to its run page), **Configuration** (size, software
 chips, AD join, tags; a Modify link) and **Details** (health-check state and age, instance ID,

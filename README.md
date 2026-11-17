@@ -21,7 +21,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     ⋯ Apply OS updates, Re-apply configuration, Destroy) with confirm dialogs (Destroy asks for the VM
     name). Actions post to `POST /api/vms/runs` with a per-dialog UUID request key; Modify opens the
     `vm-modify` template prefilled with the current configuration. The body has Connect (SSH command,
-    certificate), Activity (active/failed run with retry/skip, then the last 10 runs), Configuration
+    **Open terminal**, certificate), Activity (active/failed run with retry/skip, then the last 10 runs), Configuration
     and Details (health check, instance, provenance). With no known run it falls back to `cf/status`.
     When a refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
   - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Modify
@@ -91,6 +91,12 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   `POST /requests` (provision admission, from `cf:vm:dispatch`). Run visibility is team-scoped like
   the catalog. `POST /runs` diffs a Modify against the entity spec and refuses (409) operations the
   health check shows cannot work (for example Reboot on a stopped VM).
+- **Browser terminal** (`plugins/cf-backend/src/terminal.ts`, `plugins/vm-status/src/VmTerminal.tsx`,
+  CONTRACTS.md §8.4): `POST /api/vms/terminal` signs a fresh key with the SSH CA for 5 minutes (principal
+  of the VM's team, key ID `idp-terminal:<user>`) and runs the system `ssh` in a PTY (`node-pty`, built
+  in the image; on macOS the prebuilt `spawn-helper` may need `chmod +x` for local runs). The xterm.js
+  dialog posts keystrokes and long-polls output over plain HTTP. Two sessions per user, 15-minute idle
+  and 90-second orphan timeouts, open/close logged; production only (`demoAutomation`).
 - **VM health check** (`plugins/cf-backend/src/observed.ts`, CONTRACTS.md §8.3): only where
   `computeFactory.demoAutomation` is on, a 30-second scheduled task (and a scan after each finished
   day-2 run) reads `ec2:DescribeInstances` and `ec2:DescribeInstanceStatus` for `cf:poc=true`

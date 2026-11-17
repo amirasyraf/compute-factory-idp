@@ -37,8 +37,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh ubuntu@<ip>` with key + issued cert).
 - Core flows: sign in → home → request VM (Scaffolder template form) → Create → live VM run page →
-  VM entity page (live state, Connect, Activity, Configuration, Details) → get SSH certificate, power
-  actions, Modify form, OS updates, re-apply, destroy.
+  VM entity page (live state, Connect, Activity, Configuration, Details) → open a browser terminal or
+  get an SSH certificate, power actions, Modify form, OS updates, re-apply, destroy.
 - Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
 - Active run progress and list summaries update about every 5 seconds; catalog facts refresh about every 10 seconds.
 

@@ -113,6 +113,9 @@ const instance = state => ({
 let observed = instance('running');
 let observedMatrix;
 let operations = [];
+let terminalInput = '';
+let terminalOutput = [];
+let terminalClosed = 0;
 let taskResult = 'processing';
 let taskOutput = {
   links: [{ title: 'Follow provisioning', url: `${base}/vms/runs/42` }],
@@ -374,6 +377,30 @@ try {
         error: null,
         vm: observed,
       };
+    } else if (path.endsWith('/vms/terminal')) {
+      json = { id: 'fixture-term', host: '203.0.113.42', user: 'ubuntu' };
+    } else if (path.endsWith('/vms/terminal/fixture-term/output')) {
+      const after = Number(
+        new URL(route.request().url()).searchParams.get('after'),
+      );
+      if (after >= terminalOutput.length) await delay(300);
+      json = {
+        seq: terminalOutput.length,
+        data: terminalOutput.slice(after).join(''),
+        closed: null,
+      };
+    } else if (path.endsWith('/vms/terminal/fixture-term/input')) {
+      const body = route.request().postDataJSON();
+      if (typeof body.data === 'string') {
+        terminalInput += body.data;
+        if (body.data.includes('\r'))
+          terminalOutput.push('\r\nspec-vm\r\nubuntu@spec-vm:~$ ');
+        else terminalOutput.push(body.data);
+      }
+      json = {};
+    } else if (path.endsWith('/vms/terminal/fixture-term')) {
+      terminalClosed++;
+      json = {};
     } else if (
       path.endsWith('/vms/runs') &&
       route.request().method() === 'POST'
@@ -943,6 +970,24 @@ try {
     /\/create\/templates\/default\/vm-modify\?formData=.*%22software%22%3A%5B%22git%22%2C%22nginx%22%5D/,
   );
   await capture('entity-running-vm');
+  terminalOutput = ['Welcome to Ubuntu\r\nubuntu@spec-vm:~$ '];
+  await page.getByRole('button', { name: 'Open terminal' }).click();
+  const terminalDialog = page.getByRole('dialog');
+  await expect(
+    terminalDialog.getByRole('status', { name: 'Terminal status' }),
+  ).toHaveText('ubuntu@203.0.113.42');
+  await expect(terminalDialog.locator('.xterm-rows')).toContainText(
+    'ubuntu@spec-vm:~$',
+  );
+  await page.keyboard.type('hostname');
+  await page.keyboard.press('Enter');
+  await expect(terminalDialog.locator('.xterm-rows')).toContainText('spec-vm');
+  await expect.poll(() => terminalInput).toBe('hostname\r');
+  await capture('entity-terminal');
+  await terminalDialog
+    .getByRole('button', { name: 'Close', exact: true })
+    .click();
+  await expect.poll(() => terminalClosed).toBe(1);
   await page.getByRole('button', { name: 'Stop', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('public IP address');
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
@@ -991,7 +1036,7 @@ try {
   operations = [];
   assertNoErrors(errors);
   console.log(
-    'VM ACTIONS PASS: live Running/Stopped state, stop/start/destroy confirmations post day-2 runs with request keys, stopped VM disables reboot/modify/updates, Modify prefill (fixture APIs)',
+    'VM ACTIONS PASS: browser terminal (open, output, typed input, close), live Running/Stopped state, stop/start/destroy confirmations post day-2 runs with request keys, stopped VM disables reboot/modify/updates, Modify prefill (fixture APIs)',
   );
   await page.goto(`${base}/`);
   const demoPanel = page.getByRole('region', {
