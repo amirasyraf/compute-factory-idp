@@ -16,7 +16,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
   not organizational billing authorization. The request form's `VmTagsEditor` field
   (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
-  `project_code` rows and optional extra tags; `/api/demo-mode/requests` rejects requests without them. Custom spec validation is
+  `project_code` rows and optional extra tags; `/api/vms/requests` rejects requests without them. Custom spec validation is
   performed by the platform workflow; malformed custom fields are rendered defensively by the card.
   It also exports the shared pipeline helpers and `PipelineLine` (the eight stations drawn as a transit
   line; skipped stages are drawn as non-stops) used by the home page. For VM entities only it supplies
@@ -42,16 +42,31 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
-  `scaffolder`, plus the `mock-rest` and `demo-mode` plugins (Backstage extension points belong to separate plugin IDs).
-  Implements password sign-in, the team policy, `cf:ssh:sign`, and `cf:watch-workflow`, which streams
-  every GitHub Actions job and step into request, refry and destroy tasks until the operation finishes.
-  It retries rate limits, GitHub 5xx and network errors (a 404 for 2 minutes) instead of failing the
-  task while the workflow keeps running; GitHub reads (watcher and demo reconcile) use ETag conditional
-  requests so unchanged polls do not consume the token's 5,000/hour rate limit. `cf:vm:dispatch`
-  retries timeouts and server errors with the same task ID; the endpoint is idempotent per task, so a
-  retry returns the existing run rather than requesting a second VM. Without demo mode, a failed
-  inventory scan no longer blocks requests; with demo mode it fails closed (quota cannot be checked).
-  `cf:servicenow:create` makes a real HTTP POST to the mock REST receiver before VM workflow dispatch.
+  `scaffolder`, plus the `mock-rest` and `vms` plugins (Backstage extension points belong to separate plugin IDs).
+  Implements password sign-in, the team policy, `cf:ssh:sign`, `cf:servicenow:create` (a real HTTP POST
+  to the mock REST receiver before the VM run starts), `cf:vm:dispatch` and `cf:vm:run`. The two VM
+  actions only create an orchestrator run (see **VM orchestrator** below) and finish; they retry
+  timeouts and server errors with the same task ID, and both endpoints are idempotent per task, so a
+  retry returns the existing run rather than requesting a second VM. GitHub reads use ETag conditional
+  requests so unchanged polls do not consume the token's 5,000/hour rate limit. Without demo mode, a
+  failed inventory scan does not block requests; with demo mode it fails closed (quota cannot be checked).
+  Scaffolder task recovery is on (`scaffolder.taskRecovery.enabled`): a task interrupted by a backend
+  restart resumes after its last completed step.
+- **VM orchestrator** (`plugins/cf-backend/src/orchestrator.ts`, served by the `vms` plugin in
+  `vms.ts`; contract in the orchestrator repo's `CONTRACTS.md` §8.2). It owns stage order, retries
+  and run state in the plugin database; GitHub Actions only executes one platform `stage.yml` stage
+  per dispatch. A 10-second worker dispatches due stages, polls their GitHub run and job steps, and
+  advances the run: up to 4 attempts per stage with 30 s / 2 min / 8 min backoff, a 45-minute attempt
+  deadline, and no automatic retry for permanent failures (the stage's `Validate inputs` step failed,
+  `startup_failure`, or a rejected dispatch). Each attempt is stored with its run key before dispatch,
+  so a lost dispatch response is recovered from the run title instead of dispatching again. When a
+  stage fails for good, `finalize` records `cf/status: failed` and the run waits for a person:
+  **Retry** (fresh attempt budget, then continue) or, for `software` and `ad-join` only, **Skip**.
+  Admins and members of the run's team can do either. Destroy supersedes any other active run of
+  that VM; a new refry supersedes a failed refry. Stage lists are code, not configuration.
+  Routes under `/api/vms`: `GET /runs/:id`, `GET /runs?name=`, `GET /summary`,
+  `POST /runs/:id/retry|skip`, `POST /runs` (refry/destroy, from `cf:vm:run`) and `POST /requests`
+  (provision admission, from `cf:vm:dispatch`). Run visibility is team-scoped like the catalog.
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
@@ -88,8 +103,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     `instanceType` and preselects `S` (the schema has no `size` default, which the form would otherwise
     re-add beside an instance type). `VmSizePicker` (cards only, on a `size` string) stays registered for
     the earlier template revision.
-  - **Demo mode:** `demo-mode` `/state` returns `instanceTypes` (`t3.micro`–`t3.large`); while it is on,
-    other types are greyed out and unselectable, and `/api/demo-mode/requests` rejects them (403).
+  - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes` (`t3.micro`–`t3.large`); while it is on,
+    other types are greyed out and unselectable, and `/api/vms/requests` rejects them (403).
   - The home row, VM header and VM card show the launched type from `cf/instance-type`, else the
     requested `instanceType` ("Custom · …") or the type the size maps to now. The size badge shows the
     size (`XS`…`L`) or `◆` for a custom type.
@@ -105,15 +120,18 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 
 ## Logging and troubleshooting
 
-- **Backstage** logs JSON to stdout. The access log line is written when a request *finishes*. With
+- **Backstage** logs JSON to stdout. The access log line is written when a request _finishes_. With
   `backend.trustProxy: 1` (production), audit and client-log entries carry the real client IP.
 - **Browser reports** appear as `warn` lines `Browser <kind>: <message>` with
   `type: clientEvent`, the user, client IP, user agent, page and bundle hash
   (`plugins/cf-backend/src/clientLog.ts`; signed-in users only, 8 KB body, 60 per user per minute).
 - **Caddy** writes a JSON access log for every request: client IP, status, size and duration.
   `Authorization` and `Cookie` headers are redacted by Caddy.
-- GitHub API failures in the workflow monitor and demo mode include GitHub's message and
-  `x-github-request-id`. Demo provision and cleanup dispatch failures are logged as warnings.
+- Orchestrator lines start with `VM run <id> <name>`: creation, every stage dispatch (with its GitHub
+  run ID), failed attempts with the next retry delay, permanent failures, manual retry/skip with the
+  user, and the run outcome. GitHub API failures include GitHub's message and `x-github-request-id`.
+- Run and stage state is in Postgres DB `backstage_plugin_vms` (`vm_runs`, `vm_run_stages`; demo
+  mode uses `demo_settings`, `demo_vms` in the same database).
 - Container logs rotate at 20 MB × 5 files per service.
 - From the orchestrator repo: `./poc logs [backstage|caddy|postgres|all] [since]` and
   `./poc task <task-id>` (task status plus stored events). If the task page is blank but
@@ -247,8 +265,10 @@ existing ready/failed VMs five minutes from enable time. New VMs get five minute
 queued, provisioning, failed and destroying VMs all occupy quota until their inventory is gone.
 Quotas are per original requester, not per team, and include admins.
 
-The backend stores settings, deadlines and dispatch reservations in its existing database and checks
-Git inventory every 15 seconds. It reuses `destroy.yml`/Terraform rather than directly terminating EC2.
+The `vms` plugin stores settings, deadlines and reservations in its database and checks Git
+inventory every 15 seconds. Cleanup creates an orchestrator destroy run (the platform `destroy` stage
+and Terraform) rather than terminating EC2 directly. Failure timers start only when `finalize` records
+a failure after retries, not on a transient failure that is being retried.
 Disabling invalidates queued cleanup; already-started destruction cannot be undone. Re-enabling starts
 fresh timers. IDP/GitHub downtime delays cleanup, and Actions queues/Terraform add time after expiry.
 This is a POC cost-control convenience, not an independent hard termination guarantee.
@@ -258,14 +278,12 @@ development and the existing smoke environment can exercise real controls withou
 production VMs. Local requests are refused while automation is disabled. Production is single-instance:
 do not scale the backend horizontally without replacing its admission mutex with distributed locking.
 
-Ambiguous GitHub dispatches retain their reservation/cleanup intent and show an error. The worker
-recovers IDs from the newest 100 matching workflow runs; it does not blindly resend ambiguous requests.
-Known rejected cleanup dispatches and failed cleanup runs are retried after two minutes, at most three
-attempts per VM per demo-mode generation; then the VM shows "Cleanup stopped" and needs an operator
-(fix the cause, then toggle demo mode off and on to start a new generation). If recovery
-cannot find a run, inspect Actions and the control panel before operator repair; do not simply resubmit.
-Repository writers/dispatch-token holders are trusted and can bypass portal admission; do not give
-that access to demo users. The worker still reconciles their inventory against the enabled policy.
+Each VM gets one cleanup destroy run per demo-mode generation; the orchestrator retries its stages.
+If that run still fails, the VM shows "Cleanup stopped" and an operator retries the run from its run
+page (or toggles demo mode off and on, which starts a new generation and a new run). A reservation
+whose provision run ended without ever registering inventory is released; that run can no longer be
+retried. Repository writers/dispatch-token holders are trusted and can dispatch `stage.yml` directly;
+do not give that access to demo users. The worker still reconciles their inventory against the policy.
 
 ### Setup
 
@@ -284,27 +302,29 @@ Docker through environment only. It exercises the real Caddy rewrite, backend-to
 HTTP 201 and matching caller/receiver logs, rejected anonymous/catalog-token/user calls, and failed-step
 short-circuiting on HTTP 503, without dispatching GHA. It also runs the existing fixture-API browser
 checks against this local frontend. No production configuration or AWS credentials are needed.
-These checks verify admin/non-admin demo controls against the real local backend/database with
-automation disabled. They do not verify live VM expiry/provisioning or a real ServiceNow service.
+These checks verify admin/non-admin demo controls and the orchestrator's authenticated read APIs
+against the real local backend/database with automation disabled (no run can be created or
+dispatched locally). They do not verify live orchestration, VM expiry/provisioning or a real
+ServiceNow service; those are checked live after deploy.
 
 ### Mock ServiceNow REST demo
 
-The VM request starts with **Create ServiceNow request (mock)**, before **Start VM pipeline** and
-**Monitor VM workflow**. `cf:servicenow:create` sends VM name/team/platform/OS/size, the authenticated
+The VM request starts with **Create ServiceNow request (mock)**, before **Start VM pipeline**
+(`cf:vm:dispatch`, which creates the provision run). `cf:servicenow:create` sends VM name/team/platform/OS/size, the authenticated
 requester's entity ref and the task ID to `POST https://idp.amirasyraf.dev/mock-rest/servicenow`.
 Caddy rewrites that exact path to the `mock-rest` plugin's `/api/mock-rest/servicenow` route.
 The receiver returns HTTP 201 with `{number: "RITM…", status: "created", mock: true, requestId}`.
 Task logs show the URL, status and fake number; successful task output repeats the number.
 The number is deterministic for a task ID, but the receiver is stateless: no real ticket, approval,
-record lookup, persistence or provisioning-status update is implemented. Refry/destroy and direct GHA
-dispatch do not call this demo endpoint.
+record lookup, persistence or provisioning-status update is implemented. Refry/destroy do not call
+this demo endpoint.
 
 The endpoint accepts only Backstage service credentials from `plugin:scaffolder`; it is not an
-anonymous public webhook. The workflow token is restricted to catalog and the read-only demo cleanup
-check, and still cannot call the mock receiver. No new shared
+anonymous public webhook. The workflow token is restricted to `catalog` and `vms`, where it can only
+call the read-only demo cleanup check; it still cannot call the mock receiver. No new shared
 secret is needed. The action uses a backend-configured URL constrained to this IDP origin and exact
 mock path, disallows redirects, and aborts after ten seconds or task cancellation. A non-201 or malformed
-response fails the task before GHA starts. It supports Template Editor dry-runs because it creates no
+response fails the task before the VM run is created. It supports Template Editor dry-runs because it creates no
 persistent resources (the dry-run still makes the real POST). No tokens or full request bodies are logged.
 Local development uses `computeFactory.mockServiceNowUrl` at `http://localhost:7007/api/mock-rest/servicenow`;
 production overrides it with the public HTTPS demo path. The smoke check uses a disposable local Caddy.
@@ -389,7 +409,7 @@ First deploy prerequisites owned by the orchestrator:
 - EC2 role can read only `compute-factory/ssh-ca`; IMDSv2 hop limit 2 for Docker.
 - Infra-generated Postgres password/static token; platform workflow secret
   `BACKSTAGE_TOKEN` matches the runtime value. External access is restricted to
-  the `catalog` plugin using the current `backend.auth.externalAccess` shape.
+  the `catalog` and `vms` plugins using the current `backend.auth.externalAccess` shape.
 - Health: `https://idp.amirasyraf.dev/.backstage/health/v1/readiness` returns 200
   through Caddy (paths are proxied unchanged except the exact mock ServiceNow path described above).
 

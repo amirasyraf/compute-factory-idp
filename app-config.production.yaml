@@ -27,7 +27,7 @@ backend:
           subject: compute-factory-workflows
         accessRestrictions:
           - plugin: catalog
-          - plugin: demo-mode
+          - plugin: vms
 auth:
   environment: production
 catalog:

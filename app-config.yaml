@@ -42,6 +42,11 @@ integrations:
       token: ${GITHUB_TOKEN}
 permission:
   enabled: true
+# Resume tasks after a backend restart instead of failing them. The VM actions are
+# idempotent per task ID (checkpoints plus idempotent backend endpoints).
+scaffolder:
+  taskRecovery:
+    enabled: true
 auth:
   providers:
     password: {}

@@ -228,7 +228,8 @@ try {
     'Content-Type': 'application/json',
   };
   // Real backend + database + signed identities, not mocked control APIs.
-  const demoBase = `${proxyUrl}/api/demo-mode`;
+  const vmsBase = `${proxyUrl}/api/vms`;
+  const demoBase = `${vmsBase}/demo`;
   const demo = await fetch(`${demoBase}/state`, { headers: userHeaders });
   const initialDemo = await demo.json();
   if (
@@ -294,8 +295,38 @@ try {
   });
   if (disabledAutomation.status !== 503)
     throw new Error('Local smoke can launch real VMs');
+  const disabledRun = await fetch(`${vmsBase}/runs`, {
+    method: 'POST',
+    headers: normalHeaders,
+    body: '{}',
+  });
+  if (disabledRun.status !== 503)
+    throw new Error('Local smoke can start VM refry/destroy runs');
+  const summary = await fetch(`${vmsBase}/summary`, { headers: userHeaders });
+  const summaryBody = await summary.json();
+  if (!summary.ok || !Array.isArray(summaryBody.vms))
+    throw new Error(`Run summary HTTP ${summary.status}`);
+  if ((await fetch(`${vmsBase}/summary`)).status !== 401)
+    throw new Error('Anonymous run summary allowed');
+  if (
+    (await fetch(`${vmsBase}/runs/999999`, { headers: userHeaders })).status !==
+    404
+  )
+    throw new Error('Unknown run did not return 404');
+  if (
+    (await fetch(`${vmsBase}/runs?name=Bad_Name`, { headers: userHeaders }))
+      .status !== 400
+  )
+    throw new Error('Invalid run query accepted');
+  const unknownRetry = await fetch(`${vmsBase}/runs/999999/retry`, {
+    method: 'POST',
+    headers: normalHeaders,
+    body: '{}',
+  });
+  if (unknownRetry.status !== 404)
+    throw new Error(`Retry of an unknown run: ${unknownRetry.status}`);
   console.log(
-    'DEMO CONTROLS PASS: real admin toggles persisted, normal user denied, anonymous denied, stale generation rejected, local automation disabled',
+    'DEMO CONTROLS PASS: real admin toggles persisted, normal user denied, anonymous denied, stale generation rejected, local automation disabled; orchestrator read APIs authenticated, unknown runs 404',
   );
   const userAccess = await fetch(mockUrl, {
     method: 'POST',

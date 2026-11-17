@@ -1,0 +1,142 @@
+import { AuthService, DiscoveryService } from '@backstage/backend-plugin-api';
+import { createTemplateAction } from '@backstage/plugin-scaffolder-node';
+import { message } from './github';
+
+type RunResult = { runId: number; runUrl: string };
+
+// Both endpoints are idempotent per task ID and serialized, so retrying after a timeout or
+// transient server error returns the first attempt's run instead of creating a second one.
+// Only deliberate refusals (a string `error`) and other 4xx are final.
+async function callVms(
+  ctx: any,
+  auth: AuthService,
+  discovery: DiscoveryService,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<RunResult> {
+  const credentials = await ctx.getInitiatorCredentials();
+  if (!auth.isPrincipal(credentials, 'user'))
+    throw new Error('A signed-in user is required');
+  const base = await discovery.getBaseUrl('vms');
+  const deadline = Date.now() + 10 * 60 * 1000;
+  for (let attempt = 1; ; attempt++) {
+    const { token } = await auth.getPluginRequestToken({
+      onBehalfOf: credentials,
+      targetPluginId: 'vms',
+    });
+    const timeout = AbortSignal.timeout(120000);
+    let response: Response | undefined;
+    let failure = '';
+    try {
+      response = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: ctx.signal ? AbortSignal.any([timeout, ctx.signal]) : timeout,
+      });
+    } catch (error) {
+      if (ctx.signal?.aborted) throw error;
+      failure = `VM request failed (${message(error)})`;
+    }
+    if (response) {
+      const result = await response.json().catch(() => undefined as any);
+      if (response.ok && Number.isSafeInteger(result?.runId))
+        return result as RunResult;
+      // Our endpoints' deliberate answers carry a string; Backstage's generic error
+      // handler sends { error: { name, message } }.
+      if (typeof result?.error === 'string') throw new Error(result.error);
+      failure = `VM request HTTP ${response.status}${
+        typeof result?.error?.message === 'string'
+          ? `: ${result.error.message}`
+          : ''
+      }`;
+      if (response.status < 500) throw new Error(failure);
+    }
+    if (Date.now() > deadline)
+      throw new Error(
+        `${failure}. The run may still have been created; check the VM page before resubmitting.`,
+      );
+    ctx.logger.warn(
+      `${failure}; retrying the same request (attempt ${attempt + 1})`,
+    );
+    await new Promise(resolve =>
+      setTimeout(resolve, Math.min(5000 * attempt, 30000)),
+    );
+  }
+}
+
+const output = {
+  runId: (z: any) => z.number(),
+  runUrl: (z: any) => z.string(),
+};
+
+export function createVmDispatchAction(
+  auth: AuthService,
+  discovery: DiscoveryService,
+) {
+  return createTemplateAction({
+    id: 'cf:vm:dispatch',
+    description:
+      'Reserve quota and start a VM provision run as the requesting user',
+    schema: {
+      input: { name: z => z.string(), specJson: z => z.string() },
+      output,
+    },
+    async handler(ctx) {
+      const result = await ctx.checkpoint({
+        key: 'cf.vm.dispatch.v2',
+        fn: () =>
+          callVms(ctx, auth, discovery, '/requests', {
+            name: ctx.input.name,
+            specJson: ctx.input.specJson,
+            requestId: ctx.task.id,
+          }),
+      });
+      ctx.output('runId', result.runId);
+      ctx.output('runUrl', result.runUrl);
+      ctx.logger.info(`VM provision run #${result.runId}: ${result.runUrl}`);
+    },
+  });
+}
+
+export function createVmRunAction(
+  auth: AuthService,
+  discovery: DiscoveryService,
+) {
+  return createTemplateAction({
+    id: 'cf:vm:run',
+    description:
+      'Start a refry or destroy run for an existing VM as the requesting user',
+    schema: {
+      input: {
+        operation: z => z.enum(['refry', 'destroy']),
+        vm: z => z.string(),
+        stage: z =>
+          z.enum(['baseline', 'software', 'ad-join', 'access']).optional(),
+        software: z => z.array(z.string()).optional(),
+      },
+      output,
+    },
+    async handler(ctx) {
+      const result = await ctx.checkpoint({
+        key: 'cf.vm.run.v1',
+        fn: () =>
+          callVms(ctx, auth, discovery, '/runs', {
+            operation: ctx.input.operation,
+            vm: ctx.input.vm,
+            stage: ctx.input.stage,
+            software: ctx.input.software,
+            requestKey: ctx.task.id,
+          }),
+      });
+      ctx.output('runId', result.runId);
+      ctx.output('runUrl', result.runUrl);
+      ctx.logger.info(
+        `VM ${ctx.input.operation} run #${result.runId}: ${result.runUrl}`,
+      );
+    },
+  });
+}
