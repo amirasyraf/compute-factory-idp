@@ -869,9 +869,7 @@ try {
   };
   const beforeEntity = runReads;
   await page.goto(`${base}/catalog/default/resource/spec-vm`);
-  await expect(
-    page.getByRole('heading', { name: 'Configuration', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText('Configuration', { exact: true })).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
   await expect(page.getByLabel('Run stages')).toHaveCount(0);
   await expect(

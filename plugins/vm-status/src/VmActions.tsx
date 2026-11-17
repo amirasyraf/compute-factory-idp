@@ -319,6 +319,7 @@ export function VmActions({
               {confirm.body}
               {confirm.typed && (
                 <TextField
+                  id="vm-action-confirm-name"
                   fullWidth
                   size="small"
                   variant="outlined"

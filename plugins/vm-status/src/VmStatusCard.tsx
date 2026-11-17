@@ -24,6 +24,7 @@ const useStyles = makeStyles(theme => ({
   },
   column: { display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 },
   muted: { color: vmColors.mute, fontSize: 13.5, margin: 0 },
+  note: { color: vmColors.mute, fontSize: 13.5, margin: '0 0 14px' },
   error: { color: vmColors.redText, fontSize: 13, margin: '8px 0 0' },
   list: {
     margin: 0,
@@ -205,16 +206,16 @@ export function VmStatusCard() {
 
   let connect: ReactNode;
   if (vm.state === 'destroying')
-    connect = <p className={classes.muted}>The VM is being destroyed.</p>;
+    connect = <p className={classes.note}>The VM is being destroyed.</p>;
   else if (vm.power === 'stopped')
     connect = (
-      <p className={classes.muted}>
+      <p className={classes.note}>
         The VM is stopped. Start it to connect; it gets a new public IP address.
       </p>
     );
   else if (vm.status === 'missing')
     connect = (
-      <p className={classes.error}>
+      <p className={classes.note} style={{ color: vmColors.redText }}>
         No instance for this VM was found in AWS. Destroy the VM to remove its
         record.
       </p>
@@ -223,7 +224,7 @@ export function VmStatusCard() {
     connect = <CopyCommand command={`ssh ${vm.user}@${vm.ip}`} />;
   else
     connect = (
-      <p className={classes.muted}>
+      <p className={classes.note}>
         The address appears here when the VM is ready.
       </p>
     );
