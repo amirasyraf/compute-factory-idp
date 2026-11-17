@@ -983,6 +983,18 @@ try {
   await page.keyboard.press('Enter');
   await expect(terminalDialog.locator('.xterm-rows')).toContainText('spec-vm');
   await expect.poll(() => terminalInput).toBe('hostname\r');
+  // A full screen must fit: the last row may not fall below the visible terminal box.
+  terminalOutput.push(
+    Array.from({ length: 100 }, (_, i) => `line ${i + 1}`).join('\r\n'),
+  );
+  await expect(terminalDialog.locator('.xterm-rows')).toContainText('line 100');
+  const fits = await terminalDialog
+    .getByLabel('Terminal', { exact: true })
+    .evaluate(box => {
+      const rows = box.querySelector('.xterm-rows').getBoundingClientRect();
+      return rows.bottom <= box.getBoundingClientRect().bottom + 1;
+    });
+  if (!fits) throw new Error('Terminal rows overflow the visible box');
   await capture('entity-terminal');
   await terminalDialog
     .getByRole('button', { name: 'Close', exact: true })
