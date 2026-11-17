@@ -25,7 +25,7 @@ export type ProcessName = string;
 
 /** Provision run stations. Refry and destroy use their own ordered run stages. */
 export const STATIONS: { process: ProcessName; label: string }[] = [
-  { process: 'servicenow', label: 'ServiceNow request' },
+  { process: 'servicenow', label: 'ServiceNow' },
   { process: 'register', label: 'Register' },
   { process: 'provision', label: 'Provision' },
   { process: 'baseline', label: 'Baseline' },
@@ -152,22 +152,26 @@ export function vmRunLabel(run?: RunView, fallback?: string): string {
     return fallback === 'failed'
       ? 'Needs attention'
       : vmStateLabel(fallback, {});
-  const failed = run.stages.find(stage => stage.status === 'failed');
-  if (run.status === 'failed')
+  // A stage that failed for good. While `finalize` records that failure the run is still
+  // `running`, but the user-facing state is already a failure.
+  const failed =
+    run.stages.find(
+      stage => stage.status === 'failed' && stage.id !== 'finalize',
+    ) ?? run.stages.find(stage => stage.status === 'failed');
+  if (run.status === 'failed' || (run.status === 'running' && failed))
     return failed ? `Failed at ${stageLabel(failed.id)}` : 'Needs attention';
   if (run.status === 'cancelled')
     return `${
       { provision: 'Build', refry: 'Update', destroy: 'Destroy' }[run.kind]
     } cancelled`;
-  if (run.kind === 'destroy') return 'Destroying';
-  if (run.status === 'succeeded') return 'Ready';
   const active = run.stages.find(stage =>
     ['running', 'retrying'].includes(stage.status),
   );
+  const retrying = active?.status === 'retrying' ? ' · retrying' : '';
+  if (run.kind === 'destroy') return `Destroying${retrying}`;
+  if (run.status === 'succeeded') return 'Ready';
   const verb = run.kind === 'refry' ? 'Updating' : 'Building';
-  return `${verb}${active ? ` · ${stageLabel(active.id)}` : ''}${
-    active?.status === 'retrying' ? ' · retrying' : ''
-  }`;
+  return `${verb}${active ? ` · ${stageLabel(active.id)}` : ''}${retrying}`;
 }
 
 /** Absolute, provenance-labelled times, not an ambiguous age of the current run. */
@@ -269,6 +273,20 @@ const useStyles = makeStyles({
       background: vmColors.blue,
     },
   },
+  // A skipped stop the line has not reached yet: grey track, grey tick.
+  skippedAhead: {
+    color: '#8A9098',
+    fontStyle: 'italic',
+    '&::after': {
+      width: 2,
+      height: 13,
+      marginLeft: -1,
+      top: 3,
+      border: 0,
+      borderRadius: 0,
+      background: '#C9CDD2',
+    },
+  },
   current: {
     color: vmColors.blue,
     fontWeight: 700,
@@ -353,6 +371,8 @@ export function PipelineLine({
   stations?: { process: string; label: string }[];
 }) {
   const classes = useStyles();
+  // The track into a skipped stop is travelled only once the stop before it is.
+  let travelled = true;
   return (
     <ol
       className={classes.line}
@@ -361,12 +381,15 @@ export function PipelineLine({
       }}
       aria-label="Pipeline stages"
     >
-      {stations.map(({ process, label }) => {
+      {stations.map(({ process, label }, index) => {
         const status = processes[process] ?? 'pending';
+        if (status !== 'skipped') travelled = status === 'success';
+        else if (index === 0) travelled = true;
         let variant = '';
         if (retired) variant = classes.retired;
         else if (status === 'success') variant = classes.done;
-        else if (status === 'skipped') variant = classes.skipped;
+        else if (status === 'skipped')
+          variant = travelled ? classes.skipped : classes.skippedAhead;
         else if (status === 'running' || status === 'retrying')
           variant = classes.current;
         else if (status === 'failed') variant = classes.failed;

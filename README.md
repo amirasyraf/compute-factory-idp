@@ -49,7 +49,11 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   with the team's VMs: status counts as filters, and each VM's pipeline line and next action
   (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
   make one `GET /api/vms/summary` request per refresh (every 5 seconds) and join it by VM name,
-  falling back to `cf/status`; both are team-scoped (admins see every VM).
+  falling back to `cf/status`; both are team-scoped (admins see every VM). Row labels name the kind
+  of run (`vmRunLabel` in `plugins/vm-status/src/pipeline.tsx`, shared with the VM card): "Building ·
+  <stage>" for provisioning, "Updating · <stage>" for refry, "Destroying", a "· retrying" suffix while a
+  stage waits to retry, and "Failed at <stage>" / "Needs attention" on failure. The time shown is
+  absolute and labelled: "Ready since …" from `cf/ready-at`, otherwise "Requested …".
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
@@ -81,8 +85,13 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
-- The Scaffolder task page is the stock one. VM tasks finish once their run is created and link to
-  the run page; the earlier GitHub-job stage view on the task page was removed with `cf:watch-workflow`.
+- The Scaffolder task page is the stock one, wrapped by `packages/app/src/VmTaskRedirect.tsx`: when a
+  `vm-request`, `vm-refry` or `vm-destroy` task completes successfully, the browser goes straight to its
+  run page (`/vms/runs/<id>`, history replaced, so Back returns to the form). It takes the run from a
+  same-origin `/vms/runs/<n>` output link (or a numeric `runId` in the task's completion output; step
+  outputs are not visible to the stock task API). Failed or cancelled tasks (quota, conflicts) stay on
+  the task page so the error is visible; other templates are unaffected. The earlier GitHub-job stage
+  view on the task page was removed with `cf:watch-workflow`.
 - `packages/app/src/PasswordSignInPage.tsx`: username/password form and an in-memory
   Backstage identity API; the restored home and signals plugins remain enabled.
 - `packages/app/src/taskEventPolling.ts`: the task page receives task events by **long polling**

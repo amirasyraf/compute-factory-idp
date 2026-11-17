@@ -20,6 +20,7 @@ import {
   vmState,
   vmStateColor,
   vmRunLabel,
+  stageLabel,
   VmActivityTime,
 } from '@internal/plugin-vm-status';
 import { makeStyles } from '@material-ui/core';
@@ -304,6 +305,9 @@ function VmRow({ entity, state, run }: Row) {
   const namespace = entity.metadata.namespace ?? 'default';
   const name = entity.metadata.name;
   const active = activeStation(processes, stations);
+  const failedStage = run?.stages.find(
+    stage => stage.status === 'failed' && stage.id !== 'finalize',
+  );
   const os = desired.os === 'ubuntu' ? 'Ubuntu' : desired.os;
 
   let action = null;
@@ -385,15 +389,22 @@ function VmRow({ entity, state, run }: Row) {
             {os} · {sizeText}
           </div>
         )}
-        {active && (state === 'building' || state === 'failed') && (
-          <div
-            style={
-              active.status === 'failed'
-                ? { color: vmColors.redText, fontWeight: 600 }
-                : { color: vmColors.ink }
-            }
-          >
-            Stage {active.index + 1} of {stations.length}
+        {active &&
+          !failedStage &&
+          (state === 'building' || state === 'failed') && (
+            <div
+              style={
+                active.status === 'failed'
+                  ? { color: vmColors.redText, fontWeight: 600 }
+                  : { color: vmColors.ink }
+              }
+            >
+              Stage {active.index + 1} of {stations.length}
+            </div>
+          )}
+        {failedStage && (
+          <div style={{ color: vmColors.redText, fontWeight: 600 }}>
+            {stageLabel(failedStage.id)} stage failed
           </div>
         )}
         {desired.software !== 'none' && (

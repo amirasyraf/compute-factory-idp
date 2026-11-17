@@ -122,7 +122,12 @@ export function useRunSummary() {
 
 export function runVmStatus(run: RunView | undefined, fallback?: string) {
   if (!run) return fallback;
-  if (run.status === 'failed') return 'failed';
+  // Includes the short window in which finalize records a stage that failed for good.
+  const failedStage = run.stages.some(
+    stage => stage.status === 'failed' && stage.id !== 'finalize',
+  );
+  if (run.status === 'failed' || (run.status === 'running' && failedStage))
+    return 'failed';
   if (run.status === 'cancelled') return fallback;
   if (run.kind === 'destroy') return 'destroying';
   return run.status === 'succeeded' ? 'ready' : 'frying';

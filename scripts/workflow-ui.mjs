@@ -995,6 +995,23 @@ try {
     ],
     ['destroying-vm', 'destroy', 'running', 'destroy', 'running', 'Destroying'],
     [
+      'destroy-retry-vm',
+      'destroy',
+      'running',
+      'destroy',
+      'retrying',
+      'Destroying · retrying',
+    ],
+    // finalize is still recording the failure, so the run itself is still running.
+    [
+      'finalizing-vm',
+      'provision',
+      'running',
+      'software',
+      'failed',
+      'Failed at Software',
+    ],
+    [
       'retrying-vm',
       'refry',
       'running',
@@ -1080,8 +1097,14 @@ try {
     ['/catalog', 'resources-wording'],
   ]) {
     await page.goto(`${base}${route}`);
-    for (const [, , , , , label] of wording)
-      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    // Scope to each VM's row: Home's filter tabs reuse some labels (e.g. Destroying).
+    for (const [name, , , , , label] of wording)
+      await expect(
+        page
+          .getByRole('row')
+          .filter({ hasText: name })
+          .getByText(label, { exact: true }),
+      ).toBeVisible();
     await expect(page.getByText(/^Ready since /).first()).toBeVisible();
     await expect(page.getByText(/^Requested /).first()).toBeVisible();
     await capture(screenshot);
