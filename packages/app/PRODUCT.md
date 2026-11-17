@@ -27,15 +27,15 @@ VM is in that pipeline.
 
 ## Positioning
 
-Every VM is built through one visible, staged pipeline owned by the IDP orchestrator; GitHub Actions executes each stage. Each VM's
+Every VM is built through one visible, staged pipeline owned by the IDP orchestrator: in-IDP stages such as the mock ServiceNow request and GitHub Actions VM stages share the same run page. Each VM's
 `catalog-info.yaml` in Git is its single desired-configuration source and inventory record. The IDP shows
-live stage/attempt progress on a standalone run page and the VM's page. Request tasks create a run and link to it, without waiting for provisioning.
+live stage/attempt progress on a standalone run page and the VM's page. VM tasks create a run and automatically hand off to its page on success, without waiting for provisioning; task failures stay visible on the stock task page.
 
 ## Operating Context
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh ubuntu@<ip>` with key + issued cert).
-- Core flows: sign in → home → request VM (Scaffolder template form) → task output → live VM run page →
+- Core flows: sign in → home → request VM (Scaffolder template form) → Create → live VM run page →
   VM entity page with status card → get SSH certificate / refry / destroy templates.
 - Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
 - Active run progress and list summaries update about every 5 seconds; catalog facts refresh about every 10 seconds.

@@ -21,7 +21,8 @@ import {
   vmColors,
   vmState,
   vmStateColor,
-  vmStateLabel,
+  vmRunLabel,
+  VmActivityTime,
 } from '@internal/plugin-vm-status';
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
@@ -72,7 +73,8 @@ const useStyles = makeStyles({
     alignItems: 'center',
     gap: 8,
     fontWeight: 600,
-    whiteSpace: 'nowrap',
+    lineHeight: 1.4,
+    minWidth: 150,
   },
   dot: { width: 9, height: 9, borderRadius: '50%', flex: 'none' },
   line: { width: 300, marginTop: -6 },
@@ -90,7 +92,7 @@ function VmStateCell({ entity }: { entity: Entity }) {
       style={state === 'failed' ? { color: vmColors.redText } : undefined}
     >
       <i className={classes.dot} style={{ background: vmStateColor(state) }} />
-      {vmStateLabel(status, runProcesses(run), runStations(run))}
+      {vmRunLabel(run, annotations['cf/status'])}
     </span>
   );
 }
@@ -126,13 +128,13 @@ const vmColumns = (
     title: 'State',
     customSort: (a, b) =>
       String(
-        runVmStatus(
+        vmRunLabel(
           runs[a.entity.metadata.name],
           a.entity.metadata.annotations?.['cf/status'],
         ) ?? '',
       ).localeCompare(
         String(
-          runVmStatus(
+          vmRunLabel(
             runs[b.entity.metadata.name],
             b.entity.metadata.annotations?.['cf/status'],
           ) ?? '',
@@ -144,6 +146,14 @@ const vmColumns = (
     title: 'Pipeline',
     sorting: false,
     render: ({ entity }) => <VmLineCell entity={entity} />,
+  },
+  {
+    title: 'Activity time',
+    sorting: false,
+    cellStyle: { minWidth: 170, fontSize: 12.5, color: vmColors.mute },
+    render: ({ entity }) => (
+      <VmActivityTime annotations={entity.metadata.annotations ?? {}} />
+    ),
   },
   CatalogTable.columns.createOwnerColumn(),
   CatalogTable.columns.createSpecLifecycleColumn(),

@@ -257,7 +257,7 @@ stops are ticks, not smaller dots or completed stops.
 ### PipelineLine: shared transit grammar
 
 An ordered list, labelled "Pipeline stages", distributes the run's ordered stages equally.
-Provision has seven stations: Register → Provision → Baseline → Software → AD join → Access → Finalize.
+Provision has eight stations: ServiceNow request → Register → Provision → Baseline → Software → AD join → Access → Finalize.
 Refry shows Configure (skipped when not applicable), the selected stage and Finalize;
 destroy shows Destroy and Finalize. Skipped not-applicable stages remain visible. Bake is not a station.
 
@@ -303,9 +303,13 @@ Overall VM state and process state are separate concepts:
 | `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter.                                                                |
 
 Attention helpers choose the first failed stage before a running/retrying stage.
-A known run takes precedence over coarse catalog status: failed → Failed, running
-provision/refry → Building, succeeded provision/refry → Ready, and destroy → Destroying.
-Cancelled runs retain the catalog status. Destroyed is never inferred from success alone.
+A known run takes precedence over coarse catalog status. The shared `vmRunLabel`
+names the operation on Home, Resources and the VM card: provision is Building ·
+<stage>, refry is Updating · <stage>, destroy is Destroying. A retrying stage adds
+· retrying. A failed run names Failed at <stage>, or Needs attention when the
+failed stage is not known. Successful provision/refry runs show Ready; cancelled
+runs explicitly name the cancelled operation. Destroyed is never inferred from
+success alone. Color/filter state remains separate from this human wording.
 
 ### Buttons, fields and browser surfaces
 
@@ -330,8 +334,12 @@ Failed, Destroying. There is no separate filter-tab row or eyebrow above the
 greeting. Selected counts have a blue underline. A refresh note sits above the
 table; errors, loading, no-VM and empty-filter states have explicit copy/actions.
 
-Rows show size bullet/name/state, pipeline, details/software chips, **Requested**
-time and one next action. Failed rows sort first, then building, ready, other,
+Rows show size bullet/name/state, pipeline, details/software chips, **Activity time**
+and one next action. Activity time is Ready since <absolute date/time> from
+`cf/ready-at`, otherwise Requested <absolute date/time> from `cf/requested-at`.
+Missing/invalid times say Request time unavailable; no run age is substituted for
+VM request age. Resources has the same Activity time column, and the VM card uses
+the same component. Failed rows sort first, then building, ready, other,
 destroying, with name sorting within each group. Ready links to the certificate
 template; building/failed link to View run only when a run URL exists. No action
 is fabricated when unavailable. Run links go to `/vms/runs/<id>`. Home polls the catalog about every 10 seconds.
@@ -348,7 +356,7 @@ settings, including when the separate settings icon is hidden.
 
 Resources owns its title/action shell but composes stock catalog filters, table,
 search, sorting and pagination. Only a nonempty all-VM result set gets Name,
-State, Pipeline, Owner and Lifecycle columns (Title is hidden). Mixed, other and
+State, Pipeline, Activity time, Owner and Lifecycle columns (Title is hidden). Mixed, other and
 empty lists use stock column selection. Normal users' kind UI is restricted to
 Resource; admins retain the full picker. This is not a new API security boundary.
 
@@ -392,6 +400,12 @@ appears only for retries/history. Pending stages show Waiting; automatic skips
 show Not needed, with no placeholder timestamps, zero-attempt counters or empty
 job details. Retry countdowns read e.g. Retrying in 1m 20s. Manual skips name the
 user and never imply the work was completed.
+Any stage's `summary` is shown as a one-line result below its description. The
+first provision stage, ServiceNow request, runs inside the IDP; its mock ticket
+number appears here rather than in a separate task-page step. In-process stages
+have no GitHub run or job steps, so ordinary successful in-process stages have no
+empty expander. Retry history/manual attribution can still be inspected when
+present; the view does not manufacture GitHub links for them.
 
 A stage that actually ran has one named details expander containing a clearly
 labelled GitHub attempt link, job steps with status symbols, earlier attempts,
@@ -421,9 +435,18 @@ Demo controls and the compute picker's restrictions discover `vms`, using
   stepper, task controls/logs/output and settings profile/identity cards. Other
   entity pages retain their stock entity content/About card. Plain page themes
   apply to these surfaces but do not make them entirely bespoke.
-- **Stock tasks:** VM templates finish after creating an orchestrator run and link
-  to its page. Removed workflow-progress events have no custom renderer; older
-  tasks retain stock logs/output. The task-event long-poll workaround remains.
+- **Task handoff:** VM request/refry/destroy tasks finish after creating an
+  orchestrator run. `VmTaskRedirect.tsx` wraps the new frontend system's stock
+  task sub-page, watches the existing long-poll task API and replaces the task
+  history entry with the run page after successful completion. It accepts a
+  same-origin `/vms/runs/<id>` completion-output link or a positive numeric
+  `runId` exposed in completion output. Back returns to the form, not the task.
+  Backstage does not expose internal action-step output state through its task
+  API; a step's runId must be forwarded into task output to use that fallback.
+  Failed/cancelled tasks, missing/invalid run output and non-VM templates (including
+  SSH certificates) retain the stock task page, errors, logs, controls and output.
+  Removed workflow-progress events have no custom renderer. The task-event
+  long-poll workaround remains unchanged; no SSE is reintroduced.
 - **Template/form residue:** template card headers are reordered/styled by the
   theme, but their glyphs remain stock. The request-form stepper and its spacing
   gap are still stock; no owned correction is implemented. Their rendered extent
@@ -431,8 +454,8 @@ Demo controls and the compute picker's restrictions discover `vms`, using
 - **VM context-menu omission:** custom VM headers do not expose stock unregister
   or inspect menus, including for admins. Destroy remains the supported VM-removal
   route. Do not promise these menus as part of the VM-page action inventory.
-- **Age is not status age:** home's "Requested N ago" derives from
-  `cf/requested-at`, not a state-transition/observation timestamp. The VM card's
+- **Times retain provenance:** Ready since and Requested refer only to the
+  corresponding catalog annotations, not the newest run's creation time. The VM card's
   last-checked time is local catalog-fetch time; catalog checks continue, while
   the header remains based on the enclosing entity. None proves when a workflow
   state changed. Home's refresh dot remains green even when an error is shown;

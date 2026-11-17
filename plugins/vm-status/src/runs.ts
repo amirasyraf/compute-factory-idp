@@ -25,6 +25,7 @@ export type StageView = {
   skippedBy: string | null;
   retriedBy: string | null;
   outcome: 'ready' | 'failed' | null;
+  summary: string | null;
   runUrl: string | null;
   steps: { name: string; status: string }[];
   attempts: {

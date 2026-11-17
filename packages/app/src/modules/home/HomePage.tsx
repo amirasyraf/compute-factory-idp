@@ -19,7 +19,8 @@ import {
   vmColors,
   vmState,
   vmStateColor,
-  vmStateLabel,
+  vmRunLabel,
+  VmActivityTime,
 } from '@internal/plugin-vm-status';
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
@@ -234,7 +235,7 @@ const useStyles = makeStyles({
     color: vmColors.ink,
     marginRight: 4,
   },
-  when: { fontSize: 13, color: vmColors.mute, whiteSpace: 'nowrap' },
+  when: { fontSize: 12.5, color: vmColors.mute, minWidth: 150 },
   act: {
     textAlign: 'right',
     whiteSpace: 'nowrap',
@@ -273,18 +274,6 @@ function greeting(now: Date) {
   return 'Good evening';
 }
 
-function ago(iso: string | undefined, now: Date): string | undefined {
-  if (!iso) return undefined;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return undefined;
-  const mins = Math.max(0, Math.round((now.getTime() - t) / 60000));
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} days ago`;
-}
-
 function teamsLabel(refs: string[]) {
   const teams = refs
     .filter(ref => ref.startsWith('group:'))
@@ -301,10 +290,9 @@ type Row = {
   run?: RunView;
 };
 
-function VmRow({ entity, state, run, now }: Row & { now: Date }) {
+function VmRow({ entity, state, run }: Row) {
   const classes = useStyles();
   const annotations = entity.metadata.annotations ?? {};
-  const status = runVmStatus(run, annotations['cf/status']);
   const processes = runProcesses(run);
   const stations = runStations(run);
   const desired = getVmConfiguration(entity.spec);
@@ -316,7 +304,6 @@ function VmRow({ entity, state, run, now }: Row & { now: Date }) {
   const namespace = entity.metadata.namespace ?? 'default';
   const name = entity.metadata.name;
   const active = activeStation(processes, stations);
-  const requested = ago(annotations['cf/requested-at'], now);
   const os = desired.os === 'ubuntu' ? 'Ubuntu' : desired.os;
 
   let action = null;
@@ -367,7 +354,7 @@ function VmRow({ entity, state, run, now }: Row & { now: Date }) {
               }}
             >
               <i className={classes.dot} style={{ background: color }} />
-              {vmStateLabel(status, processes, stations)}
+              {vmRunLabel(run, annotations['cf/status'])}
             </div>
           </div>
         </div>
@@ -406,10 +393,7 @@ function VmRow({ entity, state, run, now }: Row & { now: Date }) {
                 : { color: vmColors.ink }
             }
           >
-            {active.status === 'failed'
-              ? `${active.label} stage failed`
-              : `${active.label} running`}{' '}
-            · stage {active.index + 1} of {stations.length}
+            Stage {active.index + 1} of {stations.length}
           </div>
         )}
         {desired.software !== 'none' && (
@@ -423,7 +407,7 @@ function VmRow({ entity, state, run, now }: Row & { now: Date }) {
         )}
       </td>
       <td className={classes.when}>
-        {requested ? `Requested ${requested}` : '—'}
+        <VmActivityTime annotations={annotations} />
       </td>
       <td className={classes.act}>{action}</td>
     </tr>
@@ -634,7 +618,8 @@ export function HomePage() {
         <div className={classes.empty}>
           <h2>No virtual machines yet</h2>
           <p>
-            Request one and watch it travel the line from Register to Finalize.
+            Request one and follow its pipeline from ServiceNow request to
+            Finalize.
           </p>
           <Link to={REQUEST_VM} className={`${classes.btn} ${classes.primary}`}>
             <AddIcon />
@@ -665,7 +650,7 @@ export function HomePage() {
                 <th style={{ width: 260 }}>Machine</th>
                 <th style={{ width: 560 }}>Pipeline · baked image, then fry</th>
                 <th>Details</th>
-                <th style={{ width: 150 }}>Requested</th>
+                <th style={{ width: 180 }}>Activity time</th>
                 <th style={{ width: 170 }}>
                   <span style={{ position: 'absolute', left: -9999 }}>
                     Next action
@@ -678,7 +663,6 @@ export function HomePage() {
                 <VmRow
                   key={row.entity.metadata.uid ?? row.entity.metadata.name}
                   {...row}
-                  now={now}
                 />
               ))}
             </tbody>

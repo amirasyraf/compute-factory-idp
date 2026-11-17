@@ -8,7 +8,7 @@ import { getVmConfiguration } from './vmSpec';
 import { useVmSizeText } from './vmSizes';
 import { RunView, runVmStatus, useVmsApi } from './runs';
 import { VmRunView } from './RunView';
-import { vmColors, vmState } from './pipeline';
+import { vmColors, vmState, vmRunLabel, VmActivityTime } from './pipeline';
 
 const useStyles = makeStyles(theme => ({
   head: {
@@ -210,7 +210,7 @@ export function VmStatusCard() {
                 color: state === 'failed' ? vmColors.redText : undefined,
               }}
             >
-              {overallStatus}
+              {vmRunLabel(undefined, overallStatus)}
             </div>
             <div className={classes.activity}>
               {destroying
@@ -233,6 +233,9 @@ export function VmStatusCard() {
           Run updates unavailable: {runError}
         </p>
       )}
+      <div className={classes.activity}>
+        <VmActivityTime annotations={annotations} />
+      </div>
       <div className={classes.note} title={refreshNote}>
         Catalog checked{' '}
         <time

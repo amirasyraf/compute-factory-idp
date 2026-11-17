@@ -12,6 +12,7 @@ import scaffolderPlugin from '@backstage/plugin-scaffolder/alpha';
 import { scaffolderApiRef } from '@backstage/plugin-scaffolder-react';
 import { FormFieldBlueprint } from '@backstage/plugin-scaffolder-react/alpha';
 import { PollingScaffolderClient } from './taskEventPolling';
+import { VmTaskRedirect } from './VmTaskRedirect';
 import { SignInPageBlueprint } from '@backstage/plugin-app-react';
 import { PasswordSignInPage } from './PasswordSignInPage';
 import vmStatus from '@internal/plugin-vm-status';
@@ -75,6 +76,20 @@ const scaffolder = scaffolderPlugin.withOverrides({
           },
           factory: deps => new PollingScaffolderClient(deps),
         }),
+    }),
+    scaffolderPlugin.getExtension('sub-page:scaffolder/tasks').override({
+      factory(originalFactory) {
+        const original = originalFactory();
+        return Array.from(original, output =>
+          output.id === coreExtensionData.reactElement.id
+            ? coreExtensionData.reactElement(
+                <VmTaskRedirect>
+                  {original.get(coreExtensionData.reactElement)}
+                </VmTaskRedirect>,
+              )
+            : output,
+        );
+      },
     }),
   ],
 });

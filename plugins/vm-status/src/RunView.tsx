@@ -17,6 +17,7 @@ import {
   stageLabel,
   statusLabel,
   vmColors,
+  vmRunLabel,
 } from './pipeline';
 
 const useStyles = makeStyles({
@@ -212,6 +213,7 @@ const useStyles = makeStyles({
 });
 
 const descriptions: Record<string, string> = {
+  servicenow: 'Create the mock ServiceNow request inside the IDP.',
   register: 'Record the desired VM configuration in inventory.',
   provision: 'Create compute and record its network address.',
   baseline: 'Apply hostname, timezone and the base configuration.',
@@ -324,104 +326,117 @@ function StageRow({ stage, now }: { stage: StageView; now: number }) {
           <div className={classes.description}>{descriptions[stage.id]}</div>
         )}
       {activeError && <p className={classes.error}>{stage.error}</p>}
-      {ran && (
-        <details className={classes.details}>
-          <summary>{stageLabel(stage.id)} details</summary>
-          <div className={classes.detailBody}>
-            {stage.runUrl && (
-              <a href={stage.runUrl} target="_blank" rel="noreferrer">
-                View attempt {stage.attempt} on GitHub ↗
-              </a>
-            )}
-            {stage.error && !activeError && (
-              <p className={classes.error}>{stage.error}</p>
-            )}
-            {stage.retriedBy && <p>Retried by {shortUser(stage.retriedBy)}</p>}
-            {stage.skippedBy && (
-              <p>
-                This stage’s work was not applied. The desired spec is
-                unchanged.
-              </p>
-            )}
-            {stage.outcome && <p>Recorded outcome: {stage.outcome}</p>}
-            {!!stage.steps.length && (
-              <>
-                <h4 className={classes.detailHeading}>Job steps</h4>
-                <ol className={classes.steps}>
-                  {stage.steps.map((step, index) => (
-                    <li key={`${index}-${step.name}`}>
-                      <span
-                        aria-hidden
-                        style={{ color: statusColor(step.status) }}
-                      >
-                        {(
-                          {
-                            success: '✓',
-                            failure: '✕',
-                            cancelled: '⊘',
-                            skipped: '−',
-                            in_progress: '◉',
-                          } as Record<string, string>
-                        )[step.status] ?? '○'}
-                      </span>
-                      <span>
-                        {step.name}{' '}
-                        <span style={{ color: vmColors.mute }}>
-                          · {step.status.replace(/_/g, ' ')}
-                        </span>
-                      </span>
-                    </li>
-                  ))}
-                </ol>
-              </>
-            )}
-            {!!stage.attempts.length && (
-              <>
-                <h4 className={classes.detailHeading}>
-                  Earlier attempts ({stage.attempts.length})
-                </h4>
-                <ol className={classes.earlier}>
-                  {stage.attempts.map((attempt, index) => (
-                    <li key={`${index}-${attempt.attempt}`}>
-                      <span style={{ color: statusColor(attempt.conclusion) }}>
-                        Attempt {attempt.attempt} ·{' '}
-                        {attempt.conclusion.replace(/_/g, ' ')}
-                      </span>
-                      {' · '}
-                      <time title={fullTime(attempt.finishedAt)}>
-                        {new Date(attempt.finishedAt).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </time>
-                      {attempt.runUrl && (
-                        <>
-                          {' '}
-                          ·{' '}
-                          <a
-                            href={attempt.runUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            View on GitHub ↗
-                          </a>
-                        </>
-                      )}
-                      {attempt.error && (
-                        <p className={classes.error}>{attempt.error}</p>
-                      )}
-                    </li>
-                  ))}
-                </ol>
-              </>
-            )}
-            {!stage.runUrl &&
-              !stage.steps.length &&
-              !stage.attempts.length &&
-              !stage.error && <span>No attempt details reported yet.</span>}
-          </div>
-        </details>
+      {stage.summary && (
+        <div className={classes.description}>{stage.summary}</div>
       )}
+      {ran &&
+        (stage.runUrl ||
+          stage.steps.length > 0 ||
+          stage.attempts.length > 0 ||
+          stage.retriedBy ||
+          stage.skippedBy ||
+          stage.outcome) && (
+          <details className={classes.details}>
+            <summary>{stageLabel(stage.id)} details</summary>
+            <div className={classes.detailBody}>
+              {stage.runUrl && (
+                <a href={stage.runUrl} target="_blank" rel="noreferrer">
+                  View attempt {stage.attempt} on GitHub ↗
+                </a>
+              )}
+              {stage.error && !activeError && (
+                <p className={classes.error}>{stage.error}</p>
+              )}
+              {stage.retriedBy && (
+                <p>Retried by {shortUser(stage.retriedBy)}</p>
+              )}
+              {stage.skippedBy && (
+                <p>
+                  This stage’s work was not applied. The desired spec is
+                  unchanged.
+                </p>
+              )}
+              {stage.outcome && <p>Recorded outcome: {stage.outcome}</p>}
+              {!!stage.steps.length && (
+                <>
+                  <h4 className={classes.detailHeading}>Job steps</h4>
+                  <ol className={classes.steps}>
+                    {stage.steps.map((step, index) => (
+                      <li key={`${index}-${step.name}`}>
+                        <span
+                          aria-hidden
+                          style={{ color: statusColor(step.status) }}
+                        >
+                          {(
+                            {
+                              success: '✓',
+                              failure: '✕',
+                              cancelled: '⊘',
+                              skipped: '−',
+                              in_progress: '◉',
+                            } as Record<string, string>
+                          )[step.status] ?? '○'}
+                        </span>
+                        <span>
+                          {step.name}{' '}
+                          <span style={{ color: vmColors.mute }}>
+                            · {step.status.replace(/_/g, ' ')}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+              {!!stage.attempts.length && (
+                <>
+                  <h4 className={classes.detailHeading}>
+                    Earlier attempts ({stage.attempts.length})
+                  </h4>
+                  <ol className={classes.earlier}>
+                    {stage.attempts.map((attempt, index) => (
+                      <li key={`${index}-${attempt.attempt}`}>
+                        <span
+                          style={{ color: statusColor(attempt.conclusion) }}
+                        >
+                          Attempt {attempt.attempt} ·{' '}
+                          {attempt.conclusion.replace(/_/g, ' ')}
+                        </span>
+                        {' · '}
+                        <time title={fullTime(attempt.finishedAt)}>
+                          {new Date(attempt.finishedAt).toLocaleTimeString([], {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </time>
+                        {attempt.runUrl && (
+                          <>
+                            {' '}
+                            ·{' '}
+                            <a
+                              href={attempt.runUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              View on GitHub ↗
+                            </a>
+                          </>
+                        )}
+                        {attempt.error && (
+                          <p className={classes.error}>{attempt.error}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+                </>
+              )}
+              {!stage.runUrl &&
+                !stage.steps.length &&
+                !stage.attempts.length &&
+                !stage.error && <span>No attempt details reported yet.</span>}
+            </div>
+          </details>
+        )}
     </li>
   );
 }
@@ -552,13 +567,11 @@ export function VmRunView({
       {compact ? (
         <>
           <div className={classes.titleRow}>
-            <h2 className={classes.compactTitle}>
-              {kindLabel[run.kind]} run #{run.id}
-            </h2>
+            <h2 className={classes.compactTitle}>{vmRunLabel(run)}</h2>
             {chip}
           </div>
           <div className={classes.metadata}>
-            Requested by{' '}
+            {kindLabel[run.kind]} run #{run.id} · Requested by{' '}
             <span title={run.requestedBy}>{shortUser(run.requestedBy)}</span> ·{' '}
             {run.team}
           </div>

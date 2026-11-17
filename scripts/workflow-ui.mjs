@@ -26,6 +26,8 @@ const vm = {
       'cf/instance-type': 't3.medium',
       'cf/public-ip': '203.0.113.42',
       'cf/ssh-user': 'ubuntu',
+      'cf/requested-at': '2026-11-17T08:00:00Z',
+      'cf/ready-at': '2026-11-17T08:05:00Z',
     },
   },
   spec: {
@@ -53,11 +55,6 @@ const task = {
     },
     steps: [
       {
-        id: 'servicenow',
-        name: 'Create ServiceNow request (mock)',
-        action: 'cf:servicenow:create',
-      },
-      {
         id: 'dispatch',
         name: 'Start VM pipeline',
         action: 'cf:vm:dispatch',
@@ -81,9 +78,11 @@ const stage = (id, status, steps = []) => ({
   skippedBy: null,
   retriedBy: null,
   outcome: null,
-  runUrl: ['pending', 'skipped'].includes(status)
-    ? null
-    : 'https://github.com/example/platform/actions/runs/123',
+  summary: null,
+  runUrl:
+    id === 'servicenow' || ['pending', 'skipped'].includes(status)
+      ? null
+      : 'https://github.com/example/platform/actions/runs/123',
   steps,
   attempts: [],
 });
@@ -95,9 +94,15 @@ let actionPosts = 0;
 let summaryReads = 0;
 let demoSettings = 0;
 let noSummary = false;
-let runReadError = true;
+let runReadError = false;
 let latestReads = 0;
 let entityGone = false;
+let taskResult = 'processing';
+let taskOutput = {
+  links: [{ title: 'Follow provisioning', url: `${base}/vms/runs/42` }],
+};
+let listVms = [vm];
+let summaryMatrix;
 let snapshot = {
   id: 42,
   kind: 'provision',
@@ -112,7 +117,11 @@ let snapshot = {
   status: 'running',
   actions: { retry: false, skip: false },
   stages: [
-    stage('register', 'success'),
+    {
+      ...stage('servicenow', 'success'),
+      summary: 'RITM0123456789 created (mock ServiceNow)',
+    },
+    { ...stage('register', 'success'), summary: 'Inventory registered' },
     stage('provision', 'running', [
       {
         name: 'Terraform apply',
@@ -139,7 +148,7 @@ try {
     for (const width of [1440, 390]) {
       await page.setViewportSize({
         width,
-        height: width === 1440 ? 1100 : 1400,
+        height: width === 1440 ? 1100 : name.includes('wording') ? 2600 : 1400,
       });
       await page.evaluate(() => document.fonts.ready);
       await assertLineFits();
@@ -206,6 +215,12 @@ try {
       streamRequests++;
       await route.fulfill({ status: 500, json: { error: 'SSE not expected' } });
       return;
+    } else if (
+      path.endsWith('/scaffolder/v2/tasks') &&
+      route.request().method() === 'POST'
+    ) {
+      await route.fulfill({ status: 201, json: { id: task.id } });
+      return;
     } else if (path.endsWith('/events')) {
       // Long-poll fixture: return events newer than `after`, else a short idle wait and [].
       const after = Number(
@@ -216,12 +231,33 @@ try {
           id: 1,
           type: 'log',
           body: {
-            stepId: 'servicenow',
-            status: 'completed',
+            stepId: 'dispatch',
+            status: taskResult === 'failed' ? 'failed' : 'processing',
             message:
-              'HTTP 201 Created — mock ServiceNow request RITM0000001234 accepted',
+              taskResult === 'failed'
+                ? 'Quota exceeded'
+                : 'Creating pipeline run',
           },
         },
+        ...(taskResult === 'processing'
+          ? []
+          : [
+              {
+                id: 2,
+                type: taskResult === 'cancelled' ? 'cancelled' : 'completion',
+                body: {
+                  output: taskOutput,
+                  ...(taskResult === 'failed'
+                    ? {
+                        error: {
+                          name: 'ConflictError',
+                          message: 'Quota exceeded',
+                        },
+                      }
+                    : {}),
+                },
+              },
+            ]),
       ]
         .filter(event => event.id > after)
         .map(event => ({
@@ -233,7 +269,7 @@ try {
       await route.fulfill({ json: events }).catch(() => {});
       return;
     } else if (path.includes(`/tasks/${task.id}`)) {
-      json = task;
+      json = { ...task, status: taskResult };
     } else if (path.endsWith('/entity-facets')) {
       json = {
         facets: {
@@ -248,7 +284,7 @@ try {
       )} ${route.request().postData() ?? ''}`;
       const resources = /kind\W+resource/i.test(query);
       json = resources
-        ? { items: [vm], totalItems: 1, pageInfo: {} }
+        ? { items: listVms, totalItems: listVms.length, pageInfo: {} }
         : { items: [], totalItems: 0, pageInfo: {} };
     } else if (path.endsWith('/vm-sizes/sizes')) {
       const specs = memoryMiB => ({
@@ -309,7 +345,11 @@ try {
       };
     } else if (path.endsWith('/vms/summary')) {
       summaryReads++;
-      json = { vms: noSummary ? [] : [{ name: 'spec-vm', latest: snapshot }] };
+      json = {
+        vms: noSummary
+          ? []
+          : summaryMatrix ?? [{ name: 'spec-vm', latest: snapshot }],
+      };
     } else if (path.endsWith('/vms/runs')) {
       latestReads++;
       const query = new URL(route.request().url()).searchParams;
@@ -432,14 +472,69 @@ try {
       }
       json = path.includes('/resource/') ? vm : template;
     } else if (path.endsWith('/entities')) {
-      json = [vm];
+      json = listVms;
     }
     await route.fulfill({ json });
   });
+  // Real form navigation, but every API including Create is intercepted above.
+  await page.goto(`${base}/create/templates/default/vm-request`);
+  await page.getByLabel('cost_center value').fill('CC-fixture');
+  await page.getByLabel('project_code value').fill('PROJECT-fixture');
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Create', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/create/tasks/${task.id}$`));
+  await expect(
+    page.getByText('Start VM pipeline', { exact: true }),
+  ).toBeVisible();
+  taskResult = 'completed';
+  await expect(page).toHaveURL(`${base}/vms/runs/42`, { timeout: 15000 });
+  await expect(
+    page.getByText('RITM0123456789 created (mock ServiceNow)', { exact: true }),
+  ).toBeVisible();
+  await capture('create-redirect');
+  await page.goBack();
+  await expect(page).toHaveURL(`${base}/create/templates/default/vm-request`);
+  for (const name of ['vm-refry', 'vm-destroy']) {
+    task.spec.templateInfo.entityRef = `template:default/${name}`;
+    taskOutput =
+      name === 'vm-refry'
+        ? { runId: 42 }
+        : { links: [{ title: 'Follow run', url: '/vms/runs/42' }] };
+    await page.goto(`${base}/create/tasks/${task.id}`);
+    await expect(page).toHaveURL(`${base}/vms/runs/42`, { timeout: 15000 });
+  }
+  task.spec.templateInfo.entityRef = 'template:default/vm-request';
+  taskResult = 'failed';
   await page.goto(`${base}/create/tasks/${task.id}`);
   await expect(
-    page.getByText('Create ServiceNow request (mock)', { exact: true }),
+    page.getByText('Quota exceeded', { exact: false }).first(),
   ).toBeVisible();
+  await expect(page).toHaveURL(`${base}/create/tasks/${task.id}`);
+  await capture('task-failed');
+  taskResult = 'completed';
+  task.spec.templateInfo.entityRef = 'template:default/ssh-cert';
+  await page.goto(`${base}/create/tasks/${task.id}`);
+  await expect(page.getByRole('link', { name: 'Follow run' })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/create/tasks/${task.id}`);
+  task.spec.templateInfo.entityRef = 'template:default/vm-request';
+  taskOutput = {
+    links: [
+      { title: 'External run', url: 'https://example.invalid/vms/runs/42' },
+    ],
+  };
+  await page.goto(`${base}/create/tasks/${task.id}`);
+  await expect(page.getByRole('link', { name: 'External run' })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/create/tasks/${task.id}`);
+  taskResult = 'cancelled';
+  await page.goto(`${base}/create/tasks/${task.id}`);
+  await expect(
+    page.getByText('Start VM pipeline', { exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(`${base}/create/tasks/${task.id}`);
+  console.log(
+    'TASK HANDOFF PASS: Create → run with history replacement, refry runId, destroy run link; failed/cancelled/non-VM/external URL remain stock; long polling retained',
+  );
+  runReadError = true;
   await expect(
     page.getByRole('button', { name: 'Cancel', exact: true }),
   ).toBeVisible();
@@ -456,6 +551,21 @@ try {
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   const runView = page.getByRole('region', { name: 'VM run 42', exact: true });
   await expect(runView).toBeVisible();
+  const serviceNow = page
+    .getByLabel('Run stages')
+    .getByRole('listitem')
+    .filter({ hasText: 'ServiceNow request' });
+  await expect(serviceNow).toContainText(
+    'RITM0123456789 created (mock ServiceNow)',
+  );
+  await expect(serviceNow.locator('details')).toHaveCount(0);
+  await expect(serviceNow.getByRole('link')).toHaveCount(0);
+  await expect(
+    page
+      .getByLabel('Run stages')
+      .getByText('Inventory registered', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(8);
   await expect(runView.getByText('In progress', { exact: true })).toHaveCount(
     2,
   );
@@ -865,6 +975,121 @@ try {
   assertNoErrors(errors);
   console.log(
     'VM SIZE + TAGS UI PASS: tags table with fixed required cost_center/project_code and optional rows; size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
+  );
+  const wording = [
+    [
+      'building-vm',
+      'provision',
+      'running',
+      'provision',
+      'running',
+      'Building · Provision',
+    ],
+    [
+      'updating-vm',
+      'refry',
+      'running',
+      'software',
+      'running',
+      'Updating · Software',
+    ],
+    ['destroying-vm', 'destroy', 'running', 'destroy', 'running', 'Destroying'],
+    [
+      'retrying-vm',
+      'refry',
+      'running',
+      'software',
+      'retrying',
+      'Updating · Software · retrying',
+    ],
+    [
+      'failed-vm',
+      'provision',
+      'failed',
+      'software',
+      'failed',
+      'Failed at Software',
+    ],
+    [
+      'attention-vm',
+      'refry',
+      'failed',
+      'software',
+      'pending',
+      'Needs attention',
+    ],
+  ];
+  listVms = wording.map(([name]) => ({
+    ...vm,
+    metadata: {
+      ...vm.metadata,
+      name,
+      uid: name,
+      annotations: Object.fromEntries(
+        Object.entries(vm.metadata.annotations).filter(
+          ([key]) => key !== 'cf/ready-at' || name === 'updating-vm',
+        ),
+      ),
+    },
+  }));
+  summaryMatrix = wording.map(
+    ([name, kind, status, active, stageStatus], index) => {
+      const ids =
+        kind === 'provision'
+          ? [
+              'servicenow',
+              'register',
+              'provision',
+              'baseline',
+              'software',
+              'ad-join',
+              'access',
+              'finalize',
+            ]
+          : kind === 'refry'
+          ? ['configure', 'software', 'finalize']
+          : ['destroy', 'finalize'];
+      return {
+        name,
+        latest: {
+          ...succeeded,
+          id: 100 + index,
+          name,
+          kind,
+          status,
+          finishedAt: status === 'failed' ? new Date().toISOString() : null,
+          stages: ids.map((id, i) => ({
+            ...stage(id, i < ids.indexOf(active) ? 'success' : 'pending'),
+            ...(id === active
+              ? {
+                  status: stageStatus,
+                  attempt: stageStatus === 'retrying' ? 2 : 1,
+                  nextAttemptAt:
+                    stageStatus === 'retrying'
+                      ? new Date(Date.now() + 120000).toISOString()
+                      : null,
+                }
+              : {}),
+          })),
+        },
+      };
+    },
+  );
+  for (const [route, screenshot] of [
+    ['/', 'home-wording'],
+    ['/catalog', 'resources-wording'],
+  ]) {
+    await page.goto(`${base}${route}`);
+    for (const [, , , , , label] of wording)
+      await expect(page.getByText(label, { exact: true })).toBeVisible();
+    await expect(page.getByText(/^Ready since /).first()).toBeVisible();
+    await expect(page.getByText(/^Requested /).first()).toBeVisible();
+    await capture(screenshot);
+  }
+  listVms = [vm];
+  summaryMatrix = undefined;
+  console.log(
+    'ROW WORDING PASS: provision, refry, destroy, retrying, failed and needs-attention labels; absolute ready/request times on Home and Resources',
   );
   await page.goto(`${base}/`);
   const banner = page.getByText(

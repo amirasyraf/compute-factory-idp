@@ -20,6 +20,8 @@ export {
   vmState,
   vmStateColor,
   vmStateLabel,
+  vmRunLabel,
+  VmActivityTime,
   type VmState,
 } from './pipeline';
 export {

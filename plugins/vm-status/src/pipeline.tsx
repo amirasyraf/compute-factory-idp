@@ -11,6 +11,7 @@ export type PipelineStatus =
   | 'skipped';
 
 export const PROCESS_ORDER = [
+  'servicenow',
   'register',
   'provision',
   'baseline',
@@ -24,6 +25,7 @@ export type ProcessName = string;
 
 /** Provision run stations. Refry and destroy use their own ordered run stages. */
 export const STATIONS: { process: ProcessName; label: string }[] = [
+  { process: 'servicenow', label: 'ServiceNow request' },
   { process: 'register', label: 'Register' },
   { process: 'provision', label: 'Provision' },
   { process: 'baseline', label: 'Baseline' },
@@ -35,8 +37,12 @@ export const STATIONS: { process: ProcessName; label: string }[] = [
 
 export function stageLabel(id: string): string {
   return (
-    ({ 'ad-join': 'AD join' } as Record<string, string>)[id] ??
-    id[0].toUpperCase() + id.slice(1)
+    (
+      { 'ad-join': 'AD join', servicenow: 'ServiceNow request' } as Record<
+        string,
+        string
+      >
+    )[id] ?? id[0].toUpperCase() + id.slice(1)
   );
 }
 
@@ -138,6 +144,59 @@ export function vmStateLabel(
     return running ? `Building · ${running.label}` : 'Building';
   }
   return status ? status[0].toUpperCase() + status.slice(1) : 'Unknown';
+}
+
+/** One vocabulary for Home, Resources and the VM's compact pipeline card. */
+export function vmRunLabel(run?: RunView, fallback?: string): string {
+  if (!run)
+    return fallback === 'failed'
+      ? 'Needs attention'
+      : vmStateLabel(fallback, {});
+  const failed = run.stages.find(stage => stage.status === 'failed');
+  if (run.status === 'failed')
+    return failed ? `Failed at ${stageLabel(failed.id)}` : 'Needs attention';
+  if (run.status === 'cancelled')
+    return `${
+      { provision: 'Build', refry: 'Update', destroy: 'Destroy' }[run.kind]
+    } cancelled`;
+  if (run.kind === 'destroy') return 'Destroying';
+  if (run.status === 'succeeded') return 'Ready';
+  const active = run.stages.find(stage =>
+    ['running', 'retrying'].includes(stage.status),
+  );
+  const verb = run.kind === 'refry' ? 'Updating' : 'Building';
+  return `${verb}${active ? ` · ${stageLabel(active.id)}` : ''}${
+    active?.status === 'retrying' ? ' · retrying' : ''
+  }`;
+}
+
+/** Absolute, provenance-labelled times, not an ambiguous age of the current run. */
+export function VmActivityTime({
+  annotations,
+}: {
+  annotations: Record<string, string>;
+}) {
+  for (const [key, label] of [
+    ['cf/ready-at', 'Ready since'],
+    ['cf/requested-at', 'Requested'],
+  ]) {
+    const iso = annotations[key];
+    if (!iso || !Number.isFinite(Date.parse(iso))) continue;
+    const date = new Date(iso);
+    return (
+      <time dateTime={iso} title={date.toLocaleString()}>
+        {label}{' '}
+        {date.toLocaleString([], {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })}
+      </time>
+    );
+  }
+  return <span>Request time unavailable</span>;
 }
 
 const useStyles = makeStyles({
