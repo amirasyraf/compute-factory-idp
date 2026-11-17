@@ -21,6 +21,8 @@ export {
   vmStateColor,
   vmStateLabel,
   vmRunLabel,
+  observedLabel,
+  runNoun,
   stageLabel,
   VmActivityTime,
   type VmState,
@@ -29,6 +31,7 @@ export {
   useRunSummary,
   useVmsApi,
   runVmStatus,
+  type ObservedVm,
   type RunView,
   type StageView,
 } from './runs';

@@ -17,6 +17,7 @@ import {
   runStations,
   runVmStatus,
   useRunSummary,
+  ObservedVm,
   RunView,
   vmColors,
   vmState,
@@ -29,6 +30,10 @@ import AddIcon from '@material-ui/icons/Add';
 
 const REQUEST_VM = '/create/templates/default/vm-request';
 const RunsContext = createContext<Record<string, RunView>>({});
+// Health check per VM name: absent = not known, null = no instance found in AWS.
+const ObservedContext = createContext<Record<string, ObservedVm | null>>({});
+const observedOf = (map: Record<string, ObservedVm | null>, name: string) =>
+  name in map ? map[name] : undefined;
 
 const isVm = (entity: Entity) =>
   entity.kind.toLowerCase() === 'resource' && entity.spec?.type === 'vm';
@@ -84,7 +89,11 @@ function VmStateCell({ entity }: { entity: Entity }) {
   const classes = useStyles();
   const annotations = entity.metadata.annotations ?? {};
   const run = useContext(RunsContext)[entity.metadata.name];
-  const status = runVmStatus(run, annotations['cf/status']);
+  const observed = observedOf(
+    useContext(ObservedContext),
+    entity.metadata.name,
+  );
+  const status = runVmStatus(run, annotations['cf/status'], observed);
   const state = vmState(status);
   return (
     <span
@@ -92,7 +101,7 @@ function VmStateCell({ entity }: { entity: Entity }) {
       style={state === 'failed' ? { color: vmColors.redText } : undefined}
     >
       <i className={classes.dot} style={{ background: vmStateColor(state) }} />
-      {vmRunLabel(run, annotations['cf/status'])}
+      {vmRunLabel(run, annotations['cf/status'], observed)}
     </span>
   );
 }
@@ -172,7 +181,7 @@ export function CatalogPage({
   pagination: EntityListPagination;
 }) {
   const classes = useStyles();
-  const { runs, error } = useRunSummary();
+  const { runs, observed, error } = useRunSummary();
   // VM lists get state and pipeline columns; every other list keeps the stock set.
   const columns: CatalogTableColumnsFunc = context =>
     context.entities.length > 0 && context.entities.every(isVm)
@@ -180,33 +189,37 @@ export function CatalogPage({
       : CatalogTable.defaultColumnsFunc(context);
   return (
     <RunsContext.Provider value={runs}>
-      <EntityListProvider pagination={pagination}>
-        <div className={classes.root}>
-          <div className={classes.head}>
-            <div>
-              <h1 className={classes.h1}>Resources</h1>
-              <div className={classes.sub}>
-                Each virtual machine with its state and pipeline position.
+      <ObservedContext.Provider value={observed}>
+        <EntityListProvider pagination={pagination}>
+          <div className={classes.root}>
+            <div className={classes.head}>
+              <div>
+                <h1 className={classes.h1}>Resources</h1>
+                <div className={classes.sub}>
+                  Each virtual machine with its state and pipeline position.
+                </div>
               </div>
+              <Link to={REQUEST_VM} className={classes.primary}>
+                <AddIcon />
+                Request VM
+              </Link>
             </div>
-            <Link to={REQUEST_VM} className={classes.primary}>
-              <AddIcon />
-              Request VM
-            </Link>
+            {error && (
+              <p role="alert">
+                Run summary unavailable: {error}. Showing catalog status.
+              </p>
+            )}
+            <CatalogFilterLayout>
+              <CatalogFilterLayout.Filters>
+                {filters}
+              </CatalogFilterLayout.Filters>
+              <CatalogFilterLayout.Content>
+                <CatalogTable columns={columns} />
+              </CatalogFilterLayout.Content>
+            </CatalogFilterLayout>
           </div>
-          {error && (
-            <p role="alert">
-              Run summary unavailable: {error}. Showing catalog status.
-            </p>
-          )}
-          <CatalogFilterLayout>
-            <CatalogFilterLayout.Filters>{filters}</CatalogFilterLayout.Filters>
-            <CatalogFilterLayout.Content>
-              <CatalogTable columns={columns} />
-            </CatalogFilterLayout.Content>
-          </CatalogFilterLayout>
-        </div>
-      </EntityListProvider>
+        </EntityListProvider>
+      </ObservedContext.Provider>
     </RunsContext.Provider>
   );
 }

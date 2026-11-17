@@ -10,7 +10,8 @@ web
 
 - **Team engineers (primary).** Members of product teams (currently `alpha`, `bravo`) who sign in with a
   username and password, request a VM through a form, watch it being built, fetch a 12-hour SSH user
-  certificate and connect from their terminal, then refry (add software / AD join) or destroy the VM.
+  certificate and connect from their terminal, then manage it from its page: start, stop, reboot,
+  modify (size, software install/uninstall, AD join), apply OS updates, re-apply configuration or destroy.
   They see only their own team's VMs.
 - **Platform admins.** Members of `group:default/platform-admins` with global access, including the full
   catalog kind picker (users, groups, templates, locations).
@@ -36,15 +37,17 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh ubuntu@<ip>` with key + issued cert).
 - Core flows: sign in → home → request VM (Scaffolder template form) → Create → live VM run page →
-  VM entity page with status card → get SSH certificate / refry / destroy templates.
+  VM entity page (live state, Connect, Activity, Configuration, Details) → get SSH certificate, power
+  actions, Modify form, OS updates, re-apply, destroy.
 - Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
 - Active run progress and list summaries update about every 5 seconds; catalog facts refresh about every 10 seconds.
 
 ## Capabilities and Constraints
 
 - Must keep password sign-in, team-scoped catalog, VM status card, standalone live run view,
-  templates (request, SSH cert, refry, destroy), search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. The Create page
+  templates (request, SSH cert, modify), VM day-2 actions, search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. The Create page
   lists only "Request a VM"; the other templates act on an existing VM and open from the VM page or Home.
+  Running/stopped state comes from the IDP's periodic EC2 health check, never from desired configuration.
 - Customization only through official Backstage theming, extension overrides, blueprints and frontend
   modules. No forking or patching upstream plugins. Key pages (home, catalog list, VM page, request flow)
   may be rebuilt as custom pages composed from plugin building blocks.
@@ -53,7 +56,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
   consistent look must cover both.
 - POC scope today: Ubuntu on AWS only. Long-term target includes Windows, Azure, vSphere and possibly more
   resource types, so the design should not assume VMs are the only thing forever.
-- Billing fields are self-reported tags, not billing authorization. Refry software installs are additive.
+- Billing fields are self-reported tags, not billing authorization. Modify uninstalls unchecked catalog
+  software (package data and configuration files are kept).
 
 ## Brand Commitments
 

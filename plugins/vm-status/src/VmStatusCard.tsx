@@ -1,346 +1,395 @@
-import { useEffect, useState } from 'react';
-import { stringifyEntityRef } from '@backstage/catalog-model';
+import { ReactNode, useState } from 'react';
 import { InfoCard, Link } from '@backstage/core-components';
-import { useApi } from '@backstage/core-plugin-api';
-import { catalogApiRef, useEntity } from '@backstage/plugin-catalog-react';
-import { makeStyles } from '@material-ui/core';
+import { useEntity } from '@backstage/plugin-catalog-react';
+import { Button, makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
 import { useVmSizeText } from './vmSizes';
-import { RunView, runVmStatus, useVmsApi } from './runs';
+import { RunView } from './runs';
 import { VmRunView } from './RunView';
-import { vmColors, vmState, vmRunLabel, VmActivityTime } from './pipeline';
+import { observedLabel, runNoun, vmColors } from './pipeline';
+import { deriveVm, useVmLive } from './vmLive';
+import { modifyUrl } from './VmActions';
+
+const SSH_CERT = '/create/templates/default/ssh-cert';
 
 const useStyles = makeStyles(theme => ({
-  head: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 14,
-    flexWrap: 'wrap',
-  },
-  state: { fontSize: 18, fontWeight: 700, letterSpacing: '-0.01em' },
-  activity: { color: vmColors.mute, fontSize: 13, marginTop: 2 },
-  note: { color: vmColors.mute, fontSize: 12.5, marginTop: 6 },
-  error: { color: vmColors.redText, fontSize: 13, marginTop: 8 },
-  section: {
-    marginTop: theme.spacing(3),
-    paddingTop: theme.spacing(2),
-    borderTop: `1px solid ${theme.palette.divider}`,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: 700,
-    margin: '0 0 10px',
-  },
-  facts: {
+  grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(min(180px, 100%), 1fr))',
-    gap: '12px 24px',
+    gap: 24,
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    '@media (min-width: 1100px)': {
+      gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)',
+      alignItems: 'start',
+    },
+  },
+  column: { display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 },
+  muted: { color: vmColors.mute, fontSize: 13.5, margin: 0 },
+  error: { color: vmColors.redText, fontSize: 13, margin: '8px 0 0' },
+  list: {
     margin: 0,
-    '& dt': { fontSize: 12, color: vmColors.mute },
-    '& dd': { margin: '2px 0 0', fontSize: 14, overflowWrap: 'anywhere' },
+    '& > div': {
+      display: 'grid',
+      gridTemplateColumns: '110px minmax(0, 1fr)',
+      gap: 12,
+      padding: '7px 0',
+      borderTop: `1px solid ${theme.palette.divider}`,
+    },
+    '& > div:first-child': { borderTop: 0, paddingTop: 0 },
+    '& dt': { fontSize: 12.5, color: vmColors.mute },
+    '& dd': { margin: 0, fontSize: 13.5, overflowWrap: 'anywhere' },
   },
   command: {
-    display: 'inline-block',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    marginBottom: 14,
+  },
+  code: {
     fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
-    fontSize: 13,
+    fontSize: 14,
     background: '#F3F4F5',
     border: `1px solid ${theme.palette.divider}`,
     borderRadius: 6,
-    padding: '6px 10px',
-    marginTop: 4,
-    maxWidth: '100%',
-    boxSizing: 'border-box',
+    padding: '7px 12px',
     overflowWrap: 'anywhere',
   },
-  actions: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: theme.spacing(2),
+  mono: {
+    fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
+    fontSize: 12.5,
   },
-  action: {
+  button: { textTransform: 'none', fontWeight: 600, borderRadius: 6 },
+  link: {
     display: 'inline-flex',
     alignItems: 'center',
     height: 36,
-    padding: '0 14px',
+    padding: '0 16px',
     borderRadius: 6,
-    border: `1px solid ${theme.palette.divider}`,
-    background: '#fff',
-    color: vmColors.ink,
+    border: `1px solid ${vmColors.blue}`,
+    color: vmColors.blue,
     fontWeight: 600,
-    fontSize: 13.5,
+    fontSize: 14,
     textDecoration: 'none',
-    '&:hover': { borderColor: '#C9CDD2', textDecoration: 'none' },
+    '&:hover': { textDecoration: 'none', background: 'rgba(11,95,211,.06)' },
   },
   primary: {
     background: vmColors.blue,
-    borderColor: vmColors.blue,
     color: '#fff',
-    '&:hover': { background: '#0A4FB0', borderColor: '#0A4FB0' },
+    '&:hover': { background: '#0A4FB0' },
   },
-  danger: {
-    color: vmColors.redText,
-    '&:hover': { borderColor: vmColors.red },
+  action: {
+    fontSize: 14,
+    fontWeight: 600,
+    marginTop: 8,
+    display: 'inline-block',
   },
+  chip: {
+    display: 'inline-block',
+    padding: '1px 8px',
+    marginRight: 6,
+    borderRadius: 4,
+    background: '#F3F4F5',
+    fontSize: 13,
+  },
+  history: { listStyle: 'none', margin: 0, padding: 0 },
+  historyRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    gap: 12,
+    alignItems: 'baseline',
+    padding: '9px 0',
+    borderTop: `1px solid ${theme.palette.divider}`,
+    fontSize: 13.5,
+    '&:first-child': { borderTop: 0 },
+  },
+  historyMeta: { color: vmColors.mute, fontSize: 12.5 },
+  current: { marginBottom: 16 },
+  heading: { fontSize: 13, fontWeight: 700, margin: '0 0 6px' },
 }));
 
+const when = (iso?: string | null) => {
+  if (!iso || !Number.isFinite(Date.parse(iso))) return undefined;
+  const date = new Date(iso);
+  return (
+    <time dateTime={iso} title={date.toLocaleString()}>
+      {date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })}
+    </time>
+  );
+};
+
+const RUN_STATUS: Record<RunView['status'], string> = {
+  running: 'In progress',
+  failed: 'Failed',
+  succeeded: 'Completed',
+  cancelled: 'Cancelled',
+};
+const RUN_COLOR: Record<RunView['status'], string> = {
+  running: vmColors.blue,
+  failed: vmColors.redText,
+  succeeded: vmColors.green,
+  cancelled: vmColors.mute,
+};
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+function CopyCommand({ command }: { command: string }) {
+  const classes = useStyles();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className={classes.command}>
+      <code className={classes.code}>{command}</code>
+      <Button
+        size="small"
+        className={classes.button}
+        onClick={() =>
+          navigator.clipboard.writeText(command).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 2000);
+          })
+        }
+      >
+        {copied ? 'Copied' : 'Copy'}
+      </Button>
+    </div>
+  );
+}
+
+/** The VM page body: connect, configuration and activity, with instance details aside. */
 export function VmStatusCard() {
   const classes = useStyles();
   const { entity: initial } = useEntity();
-  const api = useApi(catalogApiRef);
-  const runsApi = useVmsApi();
-  const [run, setRun] = useState<RunView>();
-  const [runError, setRunError] = useState<string>();
-  const [entity, setEntity] = useState(initial);
-  const [error, setError] = useState<string>();
-  const [lastRefreshed, setLastRefreshed] = useState(() => new Date());
-  // Set when a refresh finds the entity gone: destroy deletes it last.
-  const [removed, setRemoved] = useState(false);
-
-  useEffect(() => {
-    setEntity(initial);
-    setRemoved(false);
-    setLastRefreshed(new Date());
-  }, [initial]);
-
-  const annotations = entity.metadata.annotations ?? {};
-  const desired = getVmConfiguration(entity.spec);
+  const live = useVmLive(initial.metadata.name);
+  const entity = live.entity ?? initial;
   const sizeText = useVmSizeText(entity);
-  const overallStatus = runVmStatus(run, annotations['cf/status']) ?? 'unknown';
-  const state = vmState(overallStatus);
-  const ip = annotations['cf/public-ip'];
-  const user = annotations['cf/ssh-user'] || 'ubuntu';
-  const prefill = encodeURIComponent(
-    JSON.stringify({ vm: stringifyEntityRef(entity) }),
-  );
-  const runUrl = run ? `/vms/runs/${run.id}` : undefined;
-  const destroying = state === 'destroying';
+  const desired = getVmConfiguration(entity.spec);
+  const annotations = entity.metadata.annotations ?? {};
+  const vm = deriveVm(entity, live);
+  const runs = live.runs ?? [];
+  const current =
+    vm.latest &&
+    (vm.latest.status === 'running' || vm.latest.status === 'failed')
+      ? vm.latest
+      : undefined;
+  const location = annotations['backstage.io/managed-by-origin-location'] ?? '';
+  const source =
+    annotations['backstage.io/view-url'] ??
+    (location.startsWith('url:') ? location.slice(4) : undefined);
 
-  useEffect(() => {
-    if (removed) return undefined;
-    let disposed = false;
-    let timer: number;
-    setRun(undefined);
-    async function load() {
-      try {
-        const result = await runsApi.latest(initial.metadata.name);
-        if (disposed) return;
-        setRun(result.runs[0]);
-        setRunError(undefined);
-      } catch (e) {
-        if (!disposed) setRunError((e as Error).message);
-      }
-      if (!disposed) timer = window.setTimeout(load, 5000);
-    }
-    load();
-    return () => {
-      disposed = true;
-      window.clearTimeout(timer);
-    };
-  }, [runsApi, initial.metadata.name, removed]);
-
-  useEffect(() => {
-    if (removed) return undefined;
-    let disposed = false;
-    let fetching = false;
-    const timer = window.setInterval(async () => {
-      if (fetching) return;
-      fetching = true;
-      try {
-        const updated = await api.getEntityByRef(stringifyEntityRef(entity));
-        if (disposed) return;
-        if (updated) setEntity(updated);
-        else setRemoved(true);
-        setLastRefreshed(new Date());
-        setError(undefined);
-      } catch (e) {
-        if (!disposed)
-          setError(`Live refresh failed (${(e as Error).message}); retrying.`);
-      } finally {
-        fetching = false;
-      }
-    }, 10000);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-    };
-  }, [api, entity, overallStatus, removed]);
-
-  const refreshNote =
-    'Catalog facts refresh about every 10 seconds; latest run about every 5 seconds.';
-
-  if (removed) {
+  if (live.removed) {
     return (
-      <InfoCard title="VM pipeline">
-        <div className={classes.state}>Destroyed</div>
-        <div className={classes.activity}>
-          This VM has been removed from the catalog. Checked{' '}
-          {lastRefreshed.toLocaleTimeString()}.
-        </div>
-        <div className={classes.actions}>
-          {runUrl && (
-            <a
-              href={runUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={classes.action}
-            >
-              View destroy run
-            </a>
-          )}
-          <Link
-            to="/catalog"
-            className={`${classes.action} ${classes.primary}`}
-          >
-            Back to Resources
-          </Link>
-        </div>
+      <InfoCard title="Removed from the catalog">
+        <p className={classes.muted}>
+          This VM was destroyed and its inventory record deleted.
+        </p>
+        <p>
+          {vm.latest && (
+            <Link to={`/vms/runs/${vm.latest.id}`}>View the destroy run</Link>
+          )}{' '}
+          · <Link to="/catalog">Back to Resources</Link>
+        </p>
       </InfoCard>
     );
   }
 
+  let connect: ReactNode;
+  if (vm.state === 'destroying')
+    connect = <p className={classes.muted}>The VM is being destroyed.</p>;
+  else if (vm.power === 'stopped')
+    connect = (
+      <p className={classes.muted}>
+        The VM is stopped. Start it to connect; it gets a new public IP address.
+      </p>
+    );
+  else if (vm.status === 'missing')
+    connect = (
+      <p className={classes.error}>
+        No instance for this VM was found in AWS. Destroy the VM to remove its
+        record.
+      </p>
+    );
+  else if (vm.ip && vm.state !== 'building')
+    connect = <CopyCommand command={`ssh ${vm.user}@${vm.ip}`} />;
+  else
+    connect = (
+      <p className={classes.muted}>
+        The address appears here when the VM is ready.
+      </p>
+    );
+
+  const health = live.observed;
+  let healthText: ReactNode = 'Not available in this environment';
+  if (live.observedError) healthText = `Unavailable: ${live.observedError}`;
+  else if (health?.enabled && !health.checkedAt) healthText = 'Checking…';
+  else if (health?.checkedAt)
+    healthText = (
+      <>
+        {observedLabel(vm.observed ?? null)}
+        {vm.observed?.health === 'initializing' && ' · status checks starting'}
+        <div className={classes.historyMeta}>
+          Checked {when(health.checkedAt)}
+          {health.error && ` · last check failed: ${health.error}`}
+        </div>
+      </>
+    );
+
   return (
-    <InfoCard title="VM pipeline">
-      {!run && (
-        <div className={classes.head}>
-          <div>
-            <div
-              className={classes.state}
-              style={{
-                color: state === 'failed' ? vmColors.redText : undefined,
-              }}
-            >
-              {vmRunLabel(undefined, overallStatus)}
-            </div>
-            <div className={classes.activity}>
-              {destroying
-                ? 'Removing this VM; checking until it leaves the catalog.'
-                : 'Latest orchestrator run'}
-            </div>
-          </div>
-        </div>
-      )}
+    <div className={classes.grid}>
+      <div className={classes.column}>
+        <InfoCard title="Connect">
+          {connect}
+          <Link
+            to={SSH_CERT}
+            className={`${classes.link} ${
+              vm.state === 'ready' ? classes.primary : ''
+            }`}
+          >
+            Get SSH certificate
+          </Link>
+          <p className={classes.muted} style={{ marginTop: 10 }}>
+            Sign your public key for 12 hours of access as{' '}
+            <span className={classes.mono}>{vm.user}</span> to your team's VMs.
+          </p>
+        </InfoCard>
 
-      {run ? (
-        <VmRunView initialRun={run} poll={false} compact onRunChange={setRun} />
-      ) : (
-        <p>
-          No run known. Catalog status: {annotations['cf/status'] ?? 'unknown'}.
-        </p>
-      )}
-      {runError && (
-        <p role="alert" className={classes.error}>
-          Run updates unavailable: {runError}
-        </p>
-      )}
-      <div className={classes.activity}>
-        <VmActivityTime annotations={annotations} />
-      </div>
-      <div className={classes.note} title={refreshNote}>
-        Catalog checked{' '}
-        <time
-          dateTime={lastRefreshed.toISOString()}
-          title={lastRefreshed.toLocaleString()}
+        <InfoCard
+          title="Activity"
+          subheader={
+            live.runsError ? (
+              <span className={classes.error}>
+                Run updates unavailable: {live.runsError}
+              </span>
+            ) : undefined
+          }
         >
-          {lastRefreshed.toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-        </time>{' '}
-        · Live updates
-      </div>
-      {error && <div className={classes.error}>{error}</div>}
-
-      <div className={classes.section}>
-        <h3 className={classes.sectionTitle}>Access</h3>
-        <dl className={classes.facts}>
-          <div>
-            <dt>IP address</dt>
-            <dd>{ip || 'Pending'}</dd>
-          </div>
-          <div>
-            <dt>SSH user</dt>
-            <dd>{user}</dd>
-          </div>
-        </dl>
-        {ip && !destroying && (
-          <code className={classes.command}>
-            ssh {user}@{ip}
-          </code>
-        )}
-        <div className={classes.actions}>
-          {!destroying && (
-            <Link
-              to="/create/templates/default/ssh-cert"
-              className={`${classes.action} ${
-                state === 'ready' ? classes.primary : ''
-              }`}
-            >
-              Get SSH certificate
-            </Link>
+          {current && (
+            <div className={classes.current}>
+              <VmRunView
+                initialRun={current}
+                poll={false}
+                compact
+                onRunChange={live.refresh}
+              />
+            </div>
           )}
-          {runUrl && (
-            <a
-              href={runUrl}
-              target="_blank"
-              rel="noreferrer"
-              className={`${classes.action} ${
-                state === 'failed' || destroying ? classes.primary : ''
-              }`}
-            >
-              {destroying ? 'View destroy run' : 'View run'}
-            </a>
-          )}
-          {!destroying && (
+          {runs.length > 0 ? (
             <>
-              <Link
-                to={`/create/templates/default/vm-refry?formData=${prefill}`}
-                className={classes.action}
-              >
-                Refry
-              </Link>
-              <Link
-                to={`/create/templates/default/vm-destroy?formData=${prefill}`}
-                className={`${classes.action} ${classes.danger}`}
-              >
-                Destroy VM
-              </Link>
+              {current && <h3 className={classes.heading}>History</h3>}
+              <ol className={classes.history} aria-label="Recent runs">
+                {runs.map(run => (
+                  <li key={run.id} className={classes.historyRow}>
+                    <div>
+                      <Link to={`/vms/runs/${run.id}`}>
+                        <b>{runNoun(run)}</b>
+                      </Link>{' '}
+                      <span style={{ color: RUN_COLOR[run.status] }}>
+                        · {RUN_STATUS[run.status]}
+                      </span>
+                      <div className={classes.historyMeta}>
+                        Run #{run.id} · {run.requestedBy.split('/').pop()}
+                        {run.error && run.status !== 'succeeded'
+                          ? ` · ${run.error}`
+                          : ''}
+                      </div>
+                    </div>
+                    <span className={classes.historyMeta}>
+                      {when(run.createdAt)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             </>
+          ) : (
+            <p className={classes.muted}>
+              {live.runs ? 'No runs recorded for this VM.' : 'Loading runs…'}
+            </p>
           )}
-        </div>
+        </InfoCard>
       </div>
 
-      <div className={classes.section}>
-        <h3 className={classes.sectionTitle}>Desired configuration</h3>
-        <dl className={classes.facts}>
-          <div>
-            <dt>Team</dt>
-            <dd>{desired.team}</dd>
-          </div>
-          <div>
-            <dt>Platform / OS</dt>
-            <dd>
-              {desired.platform} / {desired.os}
-            </dd>
-          </div>
-          <div>
-            <dt>Size</dt>
-            <dd>{sizeText}</dd>
-          </div>
-          <div>
-            <dt>Software</dt>
-            <dd>{desired.software}</dd>
-          </div>
-          <div>
-            <dt>AD join</dt>
-            <dd>{desired.adJoin}</dd>
-          </div>
-          <div>
-            <dt>Tags</dt>
-            <dd>{desired.tags}</dd>
-          </div>
-        </dl>
+      <div className={classes.column}>
+        <InfoCard
+          title="Configuration"
+          action={
+            !vm.busy &&
+            !vm.incomplete &&
+            vm.state === 'ready' &&
+            vm.power !== 'stopped' ? (
+              <Link to={modifyUrl(entity)} className={classes.action}>
+                Modify
+              </Link>
+            ) : undefined
+          }
+        >
+          <dl className={classes.list}>
+            <Fact label="Size">{sizeText}</Fact>
+            <Fact label="Software">
+              {desired.software === 'none'
+                ? 'None'
+                : desired.software.split(', ').map(item => (
+                    <span key={item} className={classes.chip}>
+                      {item}
+                    </span>
+                  ))}
+            </Fact>
+            <Fact label="AD join">
+              {desired.adJoin === 'Requested (mock)'
+                ? 'Joined (mock)'
+                : 'Not joined'}
+            </Fact>
+            <Fact label="Tags">{desired.tags}</Fact>
+          </dl>
+        </InfoCard>
+
+        <InfoCard title="Details">
+          <dl className={classes.list}>
+            <Fact label="State">{healthText}</Fact>
+            <Fact label="Instance">
+              <span className={classes.mono}>
+                {vm.observed?.instanceId ||
+                  annotations['cf/instance-id'] ||
+                  'Not launched yet'}
+              </span>
+            </Fact>
+            <Fact label="Public IP">{vm.ip || 'None'}</Fact>
+            <Fact label="Requested">
+              {annotations['cf/requested-by'] ?? 'unknown'}
+              {annotations['cf/requested-at'] && (
+                <> · {when(annotations['cf/requested-at'])}</>
+              )}
+            </Fact>
+            {annotations['cf/ready-at'] && (
+              <Fact label="First ready">
+                {when(annotations['cf/ready-at'])}
+              </Fact>
+            )}
+            <Fact label="Lifecycle">
+              {String(entity.spec?.lifecycle ?? 'unknown')}
+            </Fact>
+            {source && (
+              <Fact label="Inventory">
+                <Link to={source}>View source</Link>
+              </Fact>
+            )}
+          </dl>
+          {live.entityError && (
+            <p className={classes.error}>
+              Catalog refresh failed ({live.entityError}); retrying.
+            </p>
+          )}
+        </InfoCard>
       </div>
-    </InfoCard>
+    </div>
   );
 }

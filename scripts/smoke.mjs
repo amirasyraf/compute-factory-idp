@@ -159,8 +159,7 @@ try {
         'location:default/cf-vms',
         'template:default/ssh-cert',
         'template:default/vm-request',
-        'template:default/vm-destroy',
-        'template:default/vm-refry',
+        'template:default/vm-modify',
       ].every(ref => refs.includes(ref))
     )
       break;
@@ -294,7 +293,17 @@ try {
     body: '{}',
   });
   if (disabledRun.status !== 503)
-    throw new Error('Local smoke can start VM refry/destroy runs');
+    throw new Error('Local smoke can start VM day-2 runs');
+  const observed = await fetch(`${vmsBase}/observed/spec-vm`, {
+    headers: userHeaders,
+  });
+  const observedBody = await observed.json();
+  if (
+    !observed.ok ||
+    observedBody.enabled !== false ||
+    observedBody.vm !== null
+  )
+    throw new Error('Local smoke has a VM health check against AWS');
   const summary = await fetch(`${vmsBase}/summary`, { headers: userHeaders });
   const summaryBody = await summary.json();
   if (!summary.ok || !Array.isArray(summaryBody.vms))
@@ -344,7 +353,7 @@ try {
       mockRestUser: userAccess.status,
     }),
   );
-  if (platformTemplates.length !== 3)
+  if (platformTemplates.length !== 2)
     console.warn(
       'Platform templates not all available yet; see catalog processing logs.',
     );

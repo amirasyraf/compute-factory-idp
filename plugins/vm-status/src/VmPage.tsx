@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { Entity } from '@backstage/catalog-model';
 import { Link } from '@backstage/core-components';
 import {
   FavoriteEntity,
@@ -11,8 +12,10 @@ import type {
 import { makeStyles } from '@material-ui/core';
 import { useLocation } from 'react-router-dom';
 import { getVmConfiguration } from './vmSpec';
-import { sizeBadge, useVmSizeText } from './vmSizes';
-import { vmColors, vmState, vmStateColor } from './pipeline';
+import { useVmSizeText } from './vmSizes';
+import { vmColors, vmStateColor } from './pipeline';
+import { deriveVm, useVmLive } from './vmLive';
+import { VmActions } from './VmActions';
 
 const rule = '#E3E5E8';
 
@@ -34,17 +37,19 @@ const useStyles = makeStyles({
     marginTop: 12,
     flexWrap: 'wrap',
   },
-  bullet: {
-    width: 40,
-    height: 40,
-    borderRadius: '50%',
-    color: '#fff',
-    fontWeight: 800,
-    fontSize: 17,
-    display: 'grid',
-    placeItems: 'center',
-    flex: 'none',
+  pill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '4px 10px',
+    borderRadius: 999,
+    background: '#F3F4F5',
+    fontSize: 13,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
   },
+  dot: { width: 8, height: 8, borderRadius: '50%', flex: 'none' },
+  actions: { marginLeft: 'auto' },
   h1: {
     fontSize: 32,
     fontWeight: 700,
@@ -53,7 +58,7 @@ const useStyles = makeStyles({
     margin: 0,
     overflowWrap: 'anywhere',
   },
-  star: { marginLeft: 'auto' },
+  star: { flex: 'none' },
   meta: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -98,21 +103,34 @@ const useStyles = makeStyles({
   column: { display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 },
 });
 
-/** Compute Factory header for VM entity pages, in the home page's voice. */
+/** Compute Factory header for VM entity pages: name, live state and day-2 actions. */
 export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
   const classes = useStyles();
   const { entity } = useAsyncEntity();
-  const { pathname } = useLocation();
-  const sizeText = useVmSizeText(entity);
   if (!entity) return <header className={classes.header} />;
+  return (
+    <VmHeader
+      key={entity.metadata.name}
+      initial={entity}
+      tabs={tabs}
+      activeTabId={activeTabId}
+    />
+  );
+}
+
+function VmHeader({
+  initial,
+  tabs,
+  activeTabId,
+}: EntityHeaderLayoutProps & { initial: Entity }) {
+  const classes = useStyles();
+  const { pathname } = useLocation();
+  const live = useVmLive(initial.metadata.name);
+  // The live entity follows Modify; the page entity is only the first load.
+  const entity = live.entity ?? initial;
+  const sizeText = useVmSizeText(entity);
   const desired = getVmConfiguration(entity.spec);
-  const annotations = entity.metadata.annotations ?? {};
-  // view-url when the integration set it, else the GitHub file the entity came from.
-  const location = annotations['backstage.io/managed-by-origin-location'] ?? '';
-  const source =
-    annotations['backstage.io/view-url'] ??
-    (location.startsWith('url:') ? location.slice(4) : undefined);
-  const state = vmState(annotations['cf/status']);
+  const vm = deriveVm(entity, live);
   const flat = tabs.flatMap(tab => ('items' in tab ? tab.items : [tab]));
 
   return (
@@ -121,19 +139,28 @@ export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
         <Link to="/catalog">Resources</Link> / Virtual machine
       </nav>
       <div className={classes.titleRow}>
-        <span
-          className={classes.bullet}
-          style={{ background: vmStateColor(state) }}
-          title={sizeText}
-        >
-          {sizeBadge(entity)}
-        </span>
         <h1 className={classes.h1}>
           {entity.metadata.title ?? entity.metadata.name}
         </h1>
+        <span className={classes.pill} role="status" aria-label="VM state">
+          <i
+            className={classes.dot}
+            style={{ background: vmStateColor(vm.state) }}
+          />
+          <span
+            style={vm.state === 'failed' ? { color: vmColors.redText } : {}}
+          >
+            {live.removed ? 'Destroyed' : vm.label}
+          </span>
+        </span>
         <span className={classes.star}>
           <FavoriteEntity entity={entity} />
         </span>
+        {!live.removed && (
+          <span className={classes.actions}>
+            <VmActions entity={entity} vm={vm} onStarted={live.refresh} />
+          </span>
+        )}
       </div>
       <ul className={classes.meta}>
         <li>
@@ -141,18 +168,9 @@ export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
         </li>
         <li>
           {desired.os === 'ubuntu' ? 'Ubuntu' : desired.os} on{' '}
-          {desired.platform.toUpperCase()} · {sizeText}
+          {desired.platform.toUpperCase()}
         </li>
-        {entity.spec?.lifecycle && (
-          <li>
-            Lifecycle <b>{String(entity.spec.lifecycle)}</b>
-          </li>
-        )}
-        {source && (
-          <li>
-            <Link to={source}>View inventory source</Link>
-          </li>
-        )}
+        <li>{sizeText}</li>
       </ul>
       {flat.length > 1 ? (
         <nav className={classes.tabs} aria-label="VM sections">

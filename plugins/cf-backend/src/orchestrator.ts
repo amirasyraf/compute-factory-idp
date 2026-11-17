@@ -5,7 +5,13 @@ import { GitHubError, github, message, rejected, runHtmlUrl } from './github';
 // dispatch (platform repo `stage.yml`). See CONTRACTS.md §6 and §8.2.
 
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
-export type RunKind = 'provision' | 'refry' | 'destroy';
+export type RunKind =
+  | 'provision'
+  | 'modify'
+  | 'reapply'
+  | 'power'
+  | 'update'
+  | 'destroy';
 type RunStatus = 'running' | 'failed' | 'succeeded' | 'cancelled';
 type StageStatus =
   | 'pending'
@@ -75,7 +81,6 @@ type GitHubJobs = {
   }[];
 };
 
-export const FRY_STAGES = ['baseline', 'software', 'ad-join', 'access'];
 const SKIPPABLE = ['software', 'ad-join'];
 const MAX_ATTEMPTS = 4;
 const BACKOFF_MS = [30_000, 120_000, 480_000];
@@ -205,12 +210,36 @@ function plan(kind: RunKind, params: Record<string, any>) {
       { stage: 'access', applies: true },
       { stage: 'finalize', applies: true },
     ];
-  } else if (kind === 'refry') {
+  } else if (kind === 'modify') {
+    // Desired-state change: persist it, then apply only what changed.
+    const changes = params.changes ?? {};
     stages = [
-      { stage: 'configure', applies: SKIPPABLE.includes(params.stage) },
-      { stage: params.stage, applies: true },
+      { stage: 'configure', applies: true },
+      { stage: 'provision', applies: changes.compute === true },
+      { stage: 'software', applies: changes.software === true },
+      { stage: 'ad-join', applies: changes.adJoin === true },
       { stage: 'finalize', applies: true },
     ];
+  } else if (kind === 'reapply') {
+    // Repair drift: run every applicable fry stage again against the persisted spec.
+    const configuration = params.configuration ?? {};
+    stages = [
+      { stage: 'baseline', applies: true },
+      {
+        stage: 'software',
+        applies:
+          Array.isArray(configuration.software) &&
+          configuration.software.length > 0,
+      },
+      { stage: 'ad-join', applies: configuration.adJoin === true },
+      { stage: 'access', applies: true },
+      { stage: 'finalize', applies: true },
+    ];
+  } else if (kind === 'power') {
+    // start | stop | reboot. Power and OS updates never change cf/status, so no finalize.
+    stages = [{ stage: params.action, applies: true }];
+  } else if (kind === 'update') {
+    stages = [{ stage: 'os-update', applies: true }];
   } else {
     stages = [
       { stage: 'destroy', applies: true },
@@ -225,7 +254,8 @@ function plan(kind: RunKind, params: Record<string, any>) {
     attempt: 0,
     budget_start: 0,
     max_attempts: MAX_ATTEMPTS,
-    skippable: kind !== 'destroy' && SKIPPABLE.includes(stage),
+    skippable:
+      (kind === 'provision' || kind === 'reapply') && SKIPPABLE.includes(stage),
     steps: '[]',
     attempts: '[]',
   }));
@@ -236,6 +266,7 @@ export function createOrchestrator(options: {
   logger: LoggerService;
   appBaseUrl: string;
   inProcess: Record<string, InProcessStage>;
+  onFinished?: (run: Run) => void;
 }) {
   const { db, logger, inProcess } = options;
   const runUrl = (id: number) => `${options.appBaseUrl}/vms/runs/${id}`;
@@ -308,16 +339,12 @@ export function createOrchestrator(options: {
           .where({ name: input.name })
           .whereIn('status', ['running', 'failed'])
       ).map(runRow);
-      // Destroy supersedes everything; a new refry supersedes only a failed refry. A running run,
-      // or an incomplete (failed) provision, must be retried, skipped or destroyed first.
+      // Destroy supersedes everything; any other run supersedes only a failed day-2 run. A running
+      // run, or an incomplete (failed) provision, must be retried, skipped or destroyed first.
       const blocking = active.find(
         run =>
           input.kind !== 'destroy' &&
-          !(
-            input.kind === 'refry' &&
-            run.kind === 'refry' &&
-            run.status === 'failed'
-          ),
+          (run.status === 'running' || run.kind === 'provision'),
       );
       if (blocking)
         throw new RunConflict(
@@ -370,10 +397,12 @@ export function createOrchestrator(options: {
     let stageParams: Record<string, unknown> = {};
     if (stage.stage === 'register') stageParams = { spec: params.spec };
     else if (stage.stage === 'configure')
-      stageParams =
-        params.stage === 'software'
-          ? { software: params.software ?? [] }
-          : { adJoin: true };
+      stageParams = {
+        compute: params.compute,
+        configuration: params.configuration,
+      };
+    else if (stage.stage === 'software' && params.remove?.length)
+      stageParams = { remove: params.remove };
     else if (stage.stage === 'destroy' && params.demoGeneration)
       stageParams = { demoGeneration: params.demoGeneration };
     else if (stage.stage === 'finalize')
@@ -622,6 +651,7 @@ export function createOrchestrator(options: {
   async function finish(run: Run, status: RunStatus, error: string | null) {
     await touch(run.id, { status, error, finished_at: Date.now() });
     run.status = status;
+    options.onFinished?.(run);
     logger.info(
       `VM run ${run.id} (${run.kind} ${run.name}) ${status}${
         error ? `: ${error}` : ''
@@ -632,13 +662,15 @@ export function createOrchestrator(options: {
   // One step of the state machine; returns true when it made progress worth re-evaluating now.
   async function advanceRun(run: Run): Promise<boolean> {
     const stages = await getStages(run.id);
-    const finalize = stages.find(stage => stage.stage === 'finalize')!;
+    // Power and OS-update runs have no finalize stage.
+    const finalize = stages.find(stage => stage.stage === 'finalize');
     const failed = stages.find(
       stage => stage.status === 'failed' && stage.stage !== 'finalize',
     );
     let current: Stage | undefined;
     if (failed) {
       if (
+        !finalize ||
         ['success', 'failed', 'skipped', 'cancelled'].includes(finalize.status)
       ) {
         await finish(
@@ -651,7 +683,7 @@ export function createOrchestrator(options: {
       if (finalize.status === 'pending')
         await updateStage(finalize, { outcome: 'failed' });
       current = finalize;
-    } else if (finalize.status === 'failed') {
+    } else if (finalize?.status === 'failed') {
       await finish(run, 'failed', `Stage finalize failed: ${finalize.error}`);
       return false;
     } else {
@@ -662,7 +694,7 @@ export function createOrchestrator(options: {
         await finish(run, 'succeeded', null);
         return false;
       }
-      if (current === finalize && finalize.status === 'pending') {
+      if (finalize && current === finalize && finalize.status === 'pending') {
         if (run.kind === 'destroy') {
           await updateStage(finalize, { status: 'skipped' });
           return true;
@@ -725,14 +757,14 @@ export function createOrchestrator(options: {
     target: Stage,
     patch: Partial<Stage>,
   ) {
-    const finalize = stages.find(stage => stage.stage === 'finalize')!;
+    const finalize = stages.find(stage => stage.stage === 'finalize');
     await db.transaction(async trx => {
       const set = (stage: Stage, values: Partial<Stage>) =>
         trx<Stage>('vm_run_stages')
           .where({ run_id: stage.run_id, stage: stage.stage })
           .update(values);
       await set(target, { ...archive(target), ...patch });
-      if (finalize !== target && finalize.status !== 'pending')
+      if (finalize && finalize !== target && finalize.status !== 'pending')
         await set(finalize, {
           ...archive(finalize),
           status: 'pending',
@@ -848,6 +880,12 @@ export function createOrchestrator(options: {
     retry,
     skip,
     view,
+    async findByRequestKey(requestKey: string) {
+      const row = await db<Run>('vm_runs')
+        .where({ request_key: requestKey })
+        .first();
+      return row ? runRow(row) : undefined;
+    },
     async runsFor(name: string, limit: number) {
       return (
         await db<Run>('vm_runs')

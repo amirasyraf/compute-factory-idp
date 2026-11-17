@@ -14,6 +14,7 @@ import {
   PipelineLine,
   runProcesses,
   runStations,
+  runNoun,
   stageLabel,
   statusLabel,
   vmColors,
@@ -215,19 +216,19 @@ const useStyles = makeStyles({
 const descriptions: Record<string, string> = {
   servicenow: 'Create the mock ServiceNow request inside the IDP.',
   register: 'Record the desired VM configuration in inventory.',
-  provision: 'Create compute and record its network address.',
+  provision: 'Create or resize compute and record its network address.',
   baseline: 'Apply hostname, timezone and the base configuration.',
-  software: 'Install the software selected for this VM.',
+  software: 'Install selected software and remove deselected software.',
   'ad-join': 'Apply the requested mock AD membership.',
   access: 'Grant the owning team SSH certificate access.',
-  configure: 'Update the desired configuration for this refry.',
+  configure: 'Record the new desired configuration in inventory.',
+  start: 'Start the instance and record its new public IP address.',
+  stop: 'Stop the instance; its public IP address is released.',
+  reboot: 'Reboot the instance and wait until it is back.',
+  'os-update':
+    'Install all package updates; reboot only if an update needs it.',
   destroy: 'Remove compute and its inventory record.',
   finalize: 'Record the run outcome in inventory.',
-};
-const kindLabel = {
-  provision: 'Provision',
-  refry: 'Refry',
-  destroy: 'Destroy',
 };
 const runLabel = {
   running: 'In progress',
@@ -571,7 +572,7 @@ export function VmRunView({
             {chip}
           </div>
           <div className={classes.metadata}>
-            {kindLabel[run.kind]} run #{run.id} · Requested by{' '}
+            {runNoun(run)} run #{run.id} · Requested by{' '}
             <span title={run.requestedBy}>{shortUser(run.requestedBy)}</span> ·{' '}
             {run.team}
           </div>
@@ -605,7 +606,7 @@ export function VmRunView({
             <div>
               <div className={classes.titleRow}>
                 <h1 className={classes.title}>
-                  {kindLabel[run.kind]} · {run.name}
+                  {runNoun(run)} · {run.name}
                 </h1>
                 {chip}
               </div>

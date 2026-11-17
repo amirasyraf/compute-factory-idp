@@ -36,9 +36,16 @@ export type StageView = {
     finishedAt: string;
   }[];
 };
+export type RunKind =
+  | 'provision'
+  | 'modify'
+  | 'reapply'
+  | 'power'
+  | 'update'
+  | 'destroy';
 export type RunView = {
   id: number;
-  kind: 'provision' | 'refry' | 'destroy';
+  kind: RunKind;
   name: string;
   team: string;
   requestId: string;
@@ -52,13 +59,51 @@ export type RunView = {
   stages: StageView[];
 };
 
+/** The VM's instance as the IDP health check last saw it in AWS. */
+export type ObservedVm = {
+  instanceId: string;
+  state: string; // pending | running | stopping | stopped | shutting-down
+  health: 'ok' | 'impaired' | 'initializing' | 'unknown' | null;
+  instanceType: string | null;
+  publicIp: string | null;
+  requestId: string | null;
+  team: string | null;
+  launchedAt: string | null;
+};
+export type ObservedResponse = {
+  enabled: boolean;
+  checkedAt: string | null;
+  error: string | null;
+  vm: ObservedVm | null;
+};
+export type VmOperation =
+  | 'modify'
+  | 'reapply'
+  | 'start'
+  | 'stop'
+  | 'reboot'
+  | 'update'
+  | 'destroy';
+
 export function useVmsApi() {
   const discovery = useApi(discoveryApiRef);
   const fetchApi = useApi(fetchApiRef);
   return useMemo(() => {
-    async function request<T>(path: string, method = 'GET'): Promise<T> {
+    async function request<T>(
+      path: string,
+      method = 'GET',
+      payload?: unknown,
+    ): Promise<T> {
       const base = await discovery.getBaseUrl('vms');
-      const response = await fetchApi.fetch(`${base}${path}`, { method });
+      const response = await fetchApi.fetch(`${base}${path}`, {
+        method,
+        ...(payload === undefined
+          ? {}
+          : {
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+      });
       const body = await response.json().catch(() => undefined);
       if (!response.ok || body === undefined) {
         let message = `VM API: ${response.status}`;
@@ -72,14 +117,29 @@ export function useVmsApi() {
     return {
       getRun: (id: string | number) =>
         request<RunView>(`/runs/${encodeURIComponent(id)}`),
-      latest: (name: string) =>
+      list: (name: string, limit = 10) =>
         request<{ runs: RunView[] }>(
-          `/runs?name=${encodeURIComponent(name)}&limit=1`,
+          `/runs?name=${encodeURIComponent(name)}&limit=${limit}`,
         ),
+      observed: (name: string) =>
+        request<ObservedResponse>(`/observed/${encodeURIComponent(name)}`),
       summary: () =>
-        request<{ vms: { name: string; latest: RunView }[] }>('/summary'),
+        request<{
+          observedAt: string | null;
+          vms: {
+            name: string;
+            latest: RunView;
+            observed: ObservedVm | null;
+          }[];
+        }>('/summary'),
       action: (id: number, action: 'retry' | 'skip') =>
         request<RunView>(`/runs/${id}/${action}`, 'POST'),
+      /** Start a day-2 run; `requestKey` makes a repeated submit return the same run. */
+      operate: (body: {
+        operation: VmOperation;
+        vm: string;
+        requestKey: string;
+      }) => request<{ runId: number; runUrl: string }>('/runs', 'POST', body),
     };
   }, [discovery, fetchApi]);
 }
@@ -88,6 +148,10 @@ export function useVmsApi() {
 export function useRunSummary() {
   const api = useVmsApi();
   const [runs, setRuns] = useState<Record<string, RunView>>({});
+  // A VM name maps to null when the health check ran but found no instance of it.
+  const [observed, setObserved] = useState<Record<string, ObservedVm | null>>(
+    {},
+  );
   const [error, setError] = useState<string>();
   useEffect(() => {
     let disposed = false;
@@ -100,10 +164,16 @@ export function useRunSummary() {
         const result = await api.summary();
         if (disposed) return;
         setRuns(Object.fromEntries(result.vms.map(vm => [vm.name, vm.latest])));
+        setObserved(
+          result.observedAt
+            ? Object.fromEntries(result.vms.map(vm => [vm.name, vm.observed]))
+            : {},
+        );
         setError(undefined);
       } catch (e) {
         if (!disposed) {
           setRuns({});
+          setObserved({});
           setError((e as Error).message);
         }
       } finally {
@@ -117,18 +187,32 @@ export function useRunSummary() {
       window.clearTimeout(timer);
     };
   }, [api]);
-  return { runs, error };
+  return { runs, observed, error };
 }
 
-export function runVmStatus(run: RunView | undefined, fallback?: string) {
-  if (!run) return fallback;
-  // Includes the short window in which finalize records a stage that failed for good.
-  const failedStage = run.stages.some(
-    stage => stage.status === 'failed' && stage.id !== 'finalize',
-  );
-  if (run.status === 'failed' || (run.status === 'running' && failedStage))
-    return 'failed';
-  if (run.status === 'cancelled') return fallback;
-  if (run.kind === 'destroy') return 'destroying';
-  return run.status === 'succeeded' ? 'ready' : 'frying';
+/**
+ * Coarse VM status: the latest run while it is active or failed, else the catalog status refined
+ * by the health check (`observed`: undefined = not known, null = no instance found).
+ */
+export function runVmStatus(
+  run: RunView | undefined,
+  fallback?: string,
+  observed?: ObservedVm | null,
+) {
+  let status = fallback;
+  if (run) {
+    // Includes the short window in which finalize records a stage that failed for good.
+    const failedStage = run.stages.some(
+      stage => stage.status === 'failed' && stage.id !== 'finalize',
+    );
+    if (run.status === 'failed' || (run.status === 'running' && failedStage))
+      return 'failed';
+    if (run.kind === 'destroy' && run.status !== 'cancelled')
+      return 'destroying';
+    if (run.status === 'running') return 'frying';
+    if (run.status === 'succeeded') status = 'ready';
+  }
+  if (status !== 'ready' || observed === undefined) return status;
+  if (observed === null) return 'missing';
+  return observed.state === 'running' ? 'ready' : observed.state;
 }

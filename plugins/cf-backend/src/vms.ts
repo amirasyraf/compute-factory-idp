@@ -9,12 +9,58 @@ import { Caller, Reply, createDemo, initializeDemo } from './demo';
 import { message } from './github';
 import { createServiceNowClient } from './servicenow';
 import {
-  FRY_STAGES,
   Run,
+  RunKind,
   RunConflict,
   createOrchestrator,
   initializeOrchestrator,
 } from './orchestrator';
+import { createObserver } from './observed';
+
+const OPERATIONS: Record<string, RunKind> = {
+  modify: 'modify',
+  reapply: 'reapply',
+  start: 'power',
+  stop: 'power',
+  reboot: 'power',
+  update: 'update',
+  destroy: 'destroy',
+};
+// A health check older than this is not used to refuse an operation.
+const OBSERVED_FRESH_MS = 2 * 60_000;
+const SOFTWARE = /^[a-z0-9][a-z0-9-]{0,40}$/;
+const stringList = (value: unknown): value is string[] =>
+  Array.isArray(value) &&
+  value.length <= 20 &&
+  new Set(value).size === value.length &&
+  value.every(item => typeof item === 'string' && SOFTWARE.test(item));
+const record = (value: unknown): Record<string, any> =>
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : {};
+
+/** The requested compute, or undefined when malformed. Exactly one of size or instanceType. */
+function parseCompute(value: unknown) {
+  const compute = record(value);
+  const { platform, os, size, instanceType } = compute;
+  if (
+    typeof platform !== 'string' ||
+    typeof os !== 'string' ||
+    Object.keys(compute).some(
+      key => !['platform', 'os', 'size', 'instanceType'].includes(key),
+    ) ||
+    (size === undefined) === (instanceType === undefined) ||
+    (size !== undefined &&
+      (typeof size !== 'string' || !/^[A-Z]{1,3}$/.test(size))) ||
+    (instanceType !== undefined &&
+      (typeof instanceType !== 'string' ||
+        !/^[a-z][a-z0-9-]*\.[a-z0-9]+$/.test(instanceType)))
+  )
+    return undefined;
+  return size !== undefined
+    ? { platform, os, size: size as string }
+    : { platform, os, instanceType: instanceType as string };
+}
 
 const teamsOf = (refs: string[]) =>
   refs
@@ -79,11 +125,17 @@ export const vmsPlugin = createBackendPlugin({
           queue = result.catch(() => {});
           return result;
         }
+        // The health check reads EC2 only where VM automation runs (production).
+        const observer = automation ? createObserver(logger) : undefined;
         const orchestrator = createOrchestrator({
           db,
           logger,
           appBaseUrl: config.getString('app.baseUrl').replace(/\/$/, ''),
           inProcess: { servicenow: requestServiceNow },
+          // Show the new power state or size without waiting for the next scheduled check.
+          onFinished: run => {
+            if (run.kind !== 'provision') observer?.poll();
+          },
         });
         const vmDemo = createDemo({ db, logger, automation, orchestrator });
 
@@ -171,7 +223,8 @@ export const vmsPlugin = createBackendPlugin({
           }),
         );
 
-        // Refry and destroy of an existing VM, created by the `cf:vm:run` scaffolder action.
+        // Day-2 operations on an existing VM: the VM page (power, updates, re-apply, destroy) and the
+        // `cf:vm:run` scaffolder action (vm-modify) both create runs here.
         router.post(
           '/runs',
           route(async (req, res) => {
@@ -185,32 +238,33 @@ export const vmsPlugin = createBackendPlugin({
               });
               return;
             }
-            const { operation, vm, stage, software, requestKey } =
-              req.body ?? {};
+            const { operation, vm, requestKey } = req.body ?? {};
             let ref;
             try {
               ref = parseEntityRef(String(vm ?? ''));
             } catch {
               ref = undefined;
             }
+            const kind = Object.prototype.hasOwnProperty.call(
+              OPERATIONS,
+              operation,
+            )
+              ? OPERATIONS[operation]
+              : undefined;
+            const compute =
+              operation === 'modify' ? parseCompute(req.body.compute) : null;
             const valid =
-              ['refry', 'destroy'].includes(operation) &&
+              kind &&
               typeof requestKey === 'string' &&
               /^[a-zA-Z0-9_-]{1,100}$/.test(requestKey) &&
               ref?.kind.toLowerCase() === 'resource' &&
               ref.namespace === 'default' &&
               /^[a-z][a-z0-9-]{2,20}$/.test(ref.name) &&
-              (operation === 'destroy' ||
-                (FRY_STAGES.includes(stage) &&
-                  (software === undefined ||
-                    (Array.isArray(software) &&
-                      software.length <= 20 &&
-                      software.every(
-                        (item: unknown) =>
-                          typeof item === 'string' &&
-                          /^[a-z0-9][a-z0-9-]{0,40}$/.test(item),
-                      )))));
-            if (!valid || !ref) {
+              (operation !== 'modify' ||
+                (compute &&
+                  stringList(req.body.software) &&
+                  typeof req.body.adJoin === 'boolean'));
+            if (!valid || !ref || !kind) {
               res.status(400).json({ error: 'Invalid VM operation' });
               return;
             }
@@ -235,22 +289,102 @@ export const vmsPlugin = createBackendPlugin({
               res.status(409).json({ error: 'VM inventory has no request ID' });
               return;
             }
+            const key = `${operation}:${requestKey}`;
+            const repeated = await orchestrator.findByRequestKey(key);
+            const spec = record(entity.spec);
+            const configuration = record(spec.configuration);
+            const currentSoftware: string[] = Array.isArray(
+              configuration.software,
+            )
+              ? configuration.software
+              : [];
+            let params: Record<string, unknown> = {};
+            if (operation === 'modify' && compute) {
+              const current = record(spec.compute);
+              if (
+                current.platform !== compute.platform ||
+                current.os !== compute.os
+              ) {
+                res.status(400).json({
+                  error: 'Modify cannot change the platform or OS',
+                });
+                return;
+              }
+              const software: string[] = req.body.software;
+              const changes = {
+                compute:
+                  current.size !== compute.size ||
+                  current.instanceType !== compute.instanceType,
+                software:
+                  software.length !== currentSoftware.length ||
+                  software.some(item => !currentSoftware.includes(item)),
+                adJoin: req.body.adJoin !== (configuration.adJoin === true),
+              };
+              if (!repeated && !Object.values(changes).some(Boolean)) {
+                res.status(400).json({
+                  error: 'Nothing to change: this is the current configuration',
+                });
+                return;
+              }
+              if (!(await vmDemo.allowsInstanceType(compute.instanceType))) {
+                res.status(403).json({
+                  error:
+                    'Demo mode allows only t3.micro to t3.large; pick one of those or a size.',
+                });
+                return;
+              }
+              params = {
+                compute,
+                configuration: { software, adJoin: req.body.adJoin },
+                remove: currentSoftware.filter(
+                  item => !software.includes(item),
+                ),
+                changes,
+              };
+            } else if (operation === 'reapply')
+              params = {
+                configuration: {
+                  software: currentSoftware,
+                  adJoin: configuration.adJoin === true,
+                },
+              };
+            else if (kind === 'power') params = { action: operation };
+            // Refuse what the health check already shows cannot work (a repeated request
+            // returns its run instead).
+            const observedAt = Date.parse(observer?.status().checkedAt ?? '');
+            if (
+              !repeated &&
+              operation !== 'destroy' &&
+              observer &&
+              Date.now() - observedAt < OBSERVED_FRESH_MS
+            ) {
+              const seen = observer.get(ref.name);
+              const instance = seen?.requestId === requestId ? seen : null;
+              let refusal: string | undefined;
+              if (!instance)
+                refusal = 'No instance for this VM was found in AWS';
+              else if (operation === 'start') {
+                if (instance.state === 'running')
+                  refusal = 'The VM is already running';
+              } else if (operation === 'stop' && instance.state === 'stopped')
+                refusal = 'The VM is already stopped';
+              else if (instance.state !== 'running')
+                refusal = `The VM is ${instance.state}; start it first`;
+              if (refusal) {
+                res.status(409).json({ error: refusal });
+                return;
+              }
+            }
             const { run, created } = await exclusive(() =>
               orchestrator.createRun({
-                kind: operation,
+                kind,
                 name: ref!.name,
                 team,
                 requestId,
-                requestKey: `${operation}:${requestKey}`,
+                requestKey: key,
                 requestedBy: info.user,
                 requesterTeams: info.teams,
-                params:
-                  operation === 'refry'
-                    ? {
-                        stage,
-                        software: stage === 'software' ? software ?? [] : [],
-                      }
-                    : {},
+                params,
               }),
             );
             if (!created && run.requested_by !== info.user) {
@@ -258,6 +392,24 @@ export const vmsPlugin = createBackendPlugin({
               return;
             }
             res.json({ runId: run.id, runUrl: orchestrator.runUrl(run.id) });
+          }),
+        );
+
+        // Latest health check of one VM. Visible to the VM's team (instance tag cf:team) and admins.
+        router.get(
+          '/observed/:name',
+          route(async (req, res) => {
+            const info = await caller(req);
+            const seen = observer?.get(req.params.name) ?? null;
+            const visible =
+              seen && (info.admin || info.teams.includes(seen.team ?? ''))
+                ? seen
+                : null;
+            res.json({
+              enabled: Boolean(observer),
+              ...(observer?.status() ?? { checkedAt: null, error: null }),
+              vm: visible,
+            });
           }),
         );
 
@@ -307,12 +459,20 @@ export const vmsPlugin = createBackendPlugin({
             const runs = (await orchestrator.latestRuns()).filter(run =>
               allowed(info, run),
             );
+            const health = observer?.status();
             res.json({
+              observedAt: health?.checkedAt ?? null,
+              observedError: health?.error ?? null,
               vms: await Promise.all(
-                runs.map(async run => ({
-                  name: run.name,
-                  latest: await orchestrator.view(run, true),
-                })),
+                runs.map(async run => {
+                  const seen = observer?.get(run.name);
+                  return {
+                    name: run.name,
+                    latest: await orchestrator.view(run, true),
+                    // Only the instance of this VM incarnation.
+                    observed: seen?.requestId === run.request_id ? seen : null,
+                  };
+                }),
               ),
             });
           }),
@@ -343,6 +503,14 @@ export const vmsPlugin = createBackendPlugin({
         }
         httpRouter.use(router);
 
+        if (observer) {
+          await scheduler.scheduleTask({
+            id: 'vm-health',
+            frequency: { seconds: 30 },
+            timeout: { minutes: 2 },
+            fn: () => observer.poll(),
+          });
+        }
         if (automation) {
           await scheduler.scheduleTask({
             id: 'vm-orchestrator',

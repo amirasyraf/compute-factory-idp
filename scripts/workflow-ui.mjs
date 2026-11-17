@@ -28,6 +28,8 @@ const vm = {
       'cf/ssh-user': 'ubuntu',
       'cf/requested-at': '2026-11-17T08:00:00Z',
       'cf/ready-at': '2026-11-17T08:05:00Z',
+      'cf/request-id': 'fixture-request',
+      'cf/instance-id': 'i-0fixture000000001',
     },
   },
   spec: {
@@ -97,6 +99,20 @@ let noSummary = false;
 let runReadError = false;
 let latestReads = 0;
 let entityGone = false;
+// Health check fixture: the VM's instance as AWS reports it.
+const instance = state => ({
+  instanceId: 'i-0fixture000000001',
+  state,
+  health: state === 'running' ? 'ok' : null,
+  instanceType: 't3.medium',
+  publicIp: state === 'running' ? '203.0.113.42' : null,
+  requestId: 'fixture-request',
+  team: 'alpha',
+  launchedAt: '2026-11-17T08:01:00Z',
+});
+let observed = instance('running');
+let observedMatrix;
+let operations = [];
 let taskResult = 'processing';
 let taskOutput = {
   links: [{ title: 'Follow provisioning', url: `${base}/vms/runs/42` }],
@@ -346,14 +362,28 @@ try {
     } else if (path.endsWith('/vms/summary')) {
       summaryReads++;
       json = {
+        observedAt: new Date().toISOString(),
         vms: noSummary
           ? []
-          : summaryMatrix ?? [{ name: 'spec-vm', latest: snapshot }],
+          : summaryMatrix ?? [{ name: 'spec-vm', latest: snapshot, observed }],
       };
+    } else if (path.endsWith('/vms/observed/spec-vm')) {
+      json = {
+        enabled: true,
+        checkedAt: new Date().toISOString(),
+        error: null,
+        vm: observed,
+      };
+    } else if (
+      path.endsWith('/vms/runs') &&
+      route.request().method() === 'POST'
+    ) {
+      operations.push(route.request().postDataJSON());
+      json = { runId: 42, runUrl: `${base}/vms/runs/42` };
     } else if (path.endsWith('/vms/runs')) {
       latestReads++;
       const query = new URL(route.request().url()).searchParams;
-      if (query.get('name') !== 'spec-vm' || query.get('limit') !== '1')
+      if (query.get('name') !== 'spec-vm' || query.get('limit') !== '10')
         throw new Error('Latest run query mismatch');
       json = { runs: [snapshot] };
     } else if (/\/vms\/runs\/42\/(retry|skip)$/.test(path)) {
@@ -494,12 +524,12 @@ try {
   await capture('create-redirect');
   await page.goBack();
   await expect(page).toHaveURL(`${base}/create/templates/default/vm-request`);
-  for (const name of ['vm-refry', 'vm-destroy']) {
-    task.spec.templateInfo.entityRef = `template:default/${name}`;
-    taskOutput =
-      name === 'vm-refry'
-        ? { runId: 42 }
-        : { links: [{ title: 'Follow run', url: '/vms/runs/42' }] };
+  for (const output of [
+    { runId: 42 },
+    { links: [{ title: 'Follow run', url: '/vms/runs/42' }] },
+  ]) {
+    task.spec.templateInfo.entityRef = 'template:default/vm-modify';
+    taskOutput = output;
     await page.goto(`${base}/create/tasks/${task.id}`);
     await expect(page).toHaveURL(`${base}/vms/runs/42`, { timeout: 15000 });
   }
@@ -532,7 +562,7 @@ try {
   ).toBeVisible();
   await expect(page).toHaveURL(`${base}/create/tasks/${task.id}`);
   console.log(
-    'TASK HANDOFF PASS: Create → run with history replacement, refry runId, destroy run link; failed/cancelled/non-VM/external URL remain stock; long polling retained',
+    'TASK HANDOFF PASS: Create → run with history replacement, modify runId and run link; failed/cancelled/non-VM/external URL remain stock; long polling retained',
   );
   runReadError = true;
   await expect(
@@ -742,15 +772,28 @@ try {
   await capture('run-cancelled');
   snapshot = {
     ...succeeded,
-    kind: 'refry',
+    kind: 'modify',
     stages: [
-      stage('configure', 'skipped'),
-      stage('baseline', 'success'),
+      stage('configure', 'success'),
+      stage('software', 'success'),
       stage('finalize', 'success'),
     ],
   };
   await page.reload();
   await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(3);
+  await expect(
+    page.getByRole('heading', { name: 'Modify · spec-vm' }),
+  ).toBeVisible();
+  snapshot = {
+    ...succeeded,
+    kind: 'power',
+    stages: [stage('stop', 'success')],
+  };
+  await page.reload();
+  await expect(page.getByLabel('Pipeline stages').locator('li')).toHaveCount(1);
+  await expect(
+    page.getByRole('heading', { name: 'Stop · spec-vm' }),
+  ).toBeVisible();
   snapshot = {
     ...succeeded,
     kind: 'destroy',
@@ -827,7 +870,7 @@ try {
   const beforeEntity = runReads;
   await page.goto(`${base}/catalog/default/resource/spec-vm`);
   await expect(
-    page.getByRole('heading', { name: 'Desired configuration' }),
+    page.getByRole('heading', { name: 'Configuration', exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
   await expect(page.getByLabel('Run stages')).toHaveCount(0);
@@ -850,11 +893,16 @@ try {
     page.getByRole('button', { name: 'Retry', exact: true }),
   ).toBeVisible({ timeout: 10000 });
   await capture('entity-failed');
-  await expect(page.getByText('aws / ubuntu', { exact: true })).toBeVisible();
-  await expect(page.getByText('git, nginx', { exact: true })).toBeVisible();
+  await expect(page.getByText('Ubuntu on AWS', { exact: true })).toBeVisible();
+  for (const item of ['git', 'nginx'])
+    await expect(page.getByText(item, { exact: true })).toBeVisible();
+  // A run in progress leaves only Destroy.
+  await expect(
+    page.getByRole('button', { name: 'Stop', exact: true }),
+  ).toBeDisabled();
   await expect(
     page.getByText('M · t3.medium · 2 vCPU · 4 GiB · x86_64', { exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(2);
   await expect(
     page.getByText('cost_center: CC-1234, environment: test', { exact: true }),
   ).toBeVisible();
@@ -869,9 +917,10 @@ try {
     kind: 'destroy',
     stages: [stage('destroy', 'success'), stage('finalize', 'skipped')],
   };
-  await expect(page.getByText('Destroyed', { exact: true })).toBeVisible({
-    timeout: 15000,
-  });
+  await expect(page.getByRole('status', { name: 'VM state' })).toHaveText(
+    'Destroyed',
+    { timeout: 15000 },
+  );
   const afterRemoval = latestReads;
   await page.waitForTimeout(5500);
   if (latestReads !== afterRemoval)
@@ -881,6 +930,70 @@ try {
   assertNoErrors(errors);
   console.log(
     'VM SPEC UI PASS: desired configuration renders from spec without desired-input annotations (fixture APIs)',
+  );
+  // Day-2 actions: live state, confirmations and the requests they send.
+  await page.goto(`${base}/catalog/default/resource/spec-vm`);
+  const vmState = page.getByRole('status', { name: 'VM state' });
+  await expect(vmState).toHaveText('Running');
+  await expect(
+    page.getByText('ssh ubuntu@203.0.113.42', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Modify' }).first(),
+  ).toHaveAttribute(
+    'href',
+    /\/create\/templates\/default\/vm-modify\?formData=.*%22software%22%3A%5B%22git%22%2C%22nginx%22%5D/,
+  );
+  await capture('entity-running-vm');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('public IP address');
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  if (operations.length) throw new Error('Cancelled stop posted a run');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop VM', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  if (
+    operations.length !== 1 ||
+    operations[0].operation !== 'stop' ||
+    operations[0].vm !== 'resource:default/spec-vm' ||
+    !/^[0-9a-f-]{36}$/.test(operations[0].requestKey)
+  )
+    throw new Error(`Unexpected stop request: ${JSON.stringify(operations)}`);
+  observed = instance('stopped');
+  await expect(vmState).toHaveText('Stopped', { timeout: 20000 });
+  await expect(page.getByText(/The VM is stopped/)).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Reboot', exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('button', { name: 'Modify', exact: true }),
+  ).toBeDisabled();
+  await capture('entity-stopped-vm');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  await page.getByRole('button', { name: 'Start VM', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  if (operations.at(-1)?.operation !== 'start')
+    throw new Error('Start did not post a start run');
+  await page.getByRole('button', { name: 'More actions' }).click();
+  await expect(
+    page.getByRole('menuitem', { name: /Apply OS updates/ }),
+  ).toHaveAttribute('aria-disabled', 'true');
+  await page.getByRole('menuitem', { name: 'Destroy VM' }).click();
+  const confirmDestroy = page.getByRole('button', {
+    name: 'Destroy VM',
+    exact: true,
+  });
+  await expect(confirmDestroy).toBeDisabled();
+  await page.getByLabel('Type spec-vm to confirm').fill('spec-vm');
+  await confirmDestroy.click();
+  await expect(page).toHaveURL(`${base}/vms/runs/42`);
+  if (operations.at(-1)?.operation !== 'destroy')
+    throw new Error('Destroy did not post a destroy run');
+  observed = instance('running');
+  operations = [];
+  assertNoErrors(errors);
+  console.log(
+    'VM ACTIONS PASS: live Running/Stopped state, stop/start/destroy confirmations post day-2 runs with request keys, stopped VM disables reboot/modify/updates, Modify prefill (fixture APIs)',
   );
   await page.goto(`${base}/`);
   const demoPanel = page.getByRole('region', {
@@ -987,12 +1100,23 @@ try {
     ],
     [
       'updating-vm',
-      'refry',
+      'modify',
       'running',
       'software',
       'running',
-      'Updating · Software',
+      'Modifying · Software',
     ],
+    ['stopping-vm', 'power', 'running', 'stop', 'running', 'Stopping'],
+    ['stopped-vm', 'power', 'succeeded', 'stop', 'success', 'Stopped'],
+    [
+      'reboot-failed-vm',
+      'power',
+      'failed',
+      'reboot',
+      'failed',
+      'Reboot failed',
+    ],
+    ['running-vm', 'provision', 'succeeded', 'finalize', 'success', 'Running'],
     ['destroying-vm', 'destroy', 'running', 'destroy', 'running', 'Destroying'],
     [
       'destroy-retry-vm',
@@ -1013,11 +1137,11 @@ try {
     ],
     [
       'retrying-vm',
-      'refry',
+      'modify',
       'running',
       'software',
       'retrying',
-      'Updating · Software · retrying',
+      'Modifying · Software · retrying',
     ],
     [
       'failed-vm',
@@ -1029,7 +1153,7 @@ try {
     ],
     [
       'attention-vm',
-      'refry',
+      'modify',
       'failed',
       'software',
       'pending',
@@ -1063,11 +1187,14 @@ try {
               'access',
               'finalize',
             ]
-          : kind === 'refry'
+          : kind === 'modify'
           ? ['configure', 'software', 'finalize']
+          : kind === 'power'
+          ? [active]
           : ['destroy', 'finalize'];
       return {
         name,
+        observed: instance(name === 'stopped-vm' ? 'stopped' : 'running'),
         latest: {
           ...succeeded,
           id: 100 + index,
@@ -1112,7 +1239,7 @@ try {
   listVms = [vm];
   summaryMatrix = undefined;
   console.log(
-    'ROW WORDING PASS: provision, refry, destroy, retrying, failed and needs-attention labels; absolute ready/request times on Home and Resources',
+    'ROW WORDING PASS: provision, modify, power, destroy, retrying, failed and needs-attention labels; Running/Stopped from the health check; absolute ready/request times on Home and Resources',
   );
   await page.goto(`${base}/`);
   const banner = page.getByText(

@@ -109,26 +109,36 @@ export function createVmRunAction(
   return createTemplateAction({
     id: 'cf:vm:run',
     description:
-      'Start a refry or destroy run for an existing VM as the requesting user',
+      'Start a day-2 run (modify, re-apply, power, OS update or destroy) for an existing VM as the requesting user',
     schema: {
       input: {
-        operation: z => z.enum(['refry', 'destroy']),
+        operation: z =>
+          z.enum([
+            'modify',
+            'reapply',
+            'start',
+            'stop',
+            'reboot',
+            'update',
+            'destroy',
+          ]),
         vm: z => z.string(),
-        stage: z =>
-          z.enum(['baseline', 'software', 'ad-join', 'access']).optional(),
+        compute: z => z.record(z.string(), z.string()).optional(),
         software: z => z.array(z.string()).optional(),
+        adJoin: z => z.boolean().optional(),
       },
       output,
     },
     async handler(ctx) {
       const result = await ctx.checkpoint({
-        key: 'cf.vm.run.v1',
+        key: 'cf.vm.run.v2',
         fn: () =>
           callVms(ctx, auth, discovery, '/runs', {
             operation: ctx.input.operation,
             vm: ctx.input.vm,
-            stage: ctx.input.stage,
+            compute: ctx.input.compute,
             software: ctx.input.software,
+            adJoin: ctx.input.adJoin,
             requestKey: ctx.task.id,
           }),
       });

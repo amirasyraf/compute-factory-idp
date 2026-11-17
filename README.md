@@ -16,12 +16,16 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     `actions` allow them; Skip asks for confirmation and says the stage's work will not be applied.
     It polls every 5 seconds while the run is running and works before the VM's catalog entity exists,
     which is why VM templates link here.
-  - **VM card**: a compact latest-run summary (line, current/failed stage, permitted retry/skip and
-    View run details link; no full stage list), refreshed every five seconds, access facts, SSH command and
-    links to certificate, refry and destroy. With no known run it falls back to `cf/status`. When a
-    refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
-  - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Desired
-    software is not a software inventory: refry installs are additive, not uninstall/reconciliation.
+  - **VM page** (`VmPage.tsx` header, `VmStatusCard.tsx` body, `VmActions.tsx`, shared poller
+    `vmLive.ts`): the header shows the live state and the day-2 actions (Start/Stop, Reboot, Modify;
+    ⋯ Apply OS updates, Re-apply configuration, Destroy) with confirm dialogs (Destroy asks for the VM
+    name). Actions post to `POST /api/vms/runs` with a per-dialog UUID request key; Modify opens the
+    `vm-modify` template prefilled with the current configuration. The body has Connect (SSH command,
+    certificate), Activity (active/failed run with retry/skip, then the last 10 runs), Configuration
+    and Details (health check, instance, provenance). With no known run it falls back to `cf/status`.
+    When a refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
+  - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Modify
+    replaces the software list, so unchecked catalog software is uninstalled.
     Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
     not organizational billing authorization. The request form's `VmTagsEditor` field
     (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
@@ -29,10 +33,10 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     Custom spec validation is performed by the platform `register` stage; malformed custom fields are
     rendered defensively by the card.
   - It also exports `PipelineLine` (the run's stages drawn as a transit line; skipped stages are
-    non-stops; refry and destroy runs draw their own stages) and the summary hook used by Home and
-    Resources. For VM entities only it supplies an `EntityHeaderLayoutBlueprint` header (size bullet,
-    name, team, OS/platform, lifecycle, inventory source link, favourite star) and an
-    `EntityContentLayoutBlueprint` layout that puts the VM card first.
+    non-stops; every run kind draws its own stages) and the summary hook used by Home and
+    Resources. For VM entities only it supplies an `EntityHeaderLayoutBlueprint` header (name, state
+    pill, favourite star, actions, team, OS/platform, size) and an `EntityContentLayoutBlueprint`
+    layout that puts the VM card first.
     The stock About card is hidden for VMs through `entity-card:catalog/about` config (`$not` filter);
     other entities keep it. The custom header does not render the stock entity context menu (unregister,
     inspect) on VM pages; destroy remains the supported way to remove a VM.
@@ -50,9 +54,11 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
   make one `GET /api/vms/summary` request per refresh (every 5 seconds) and join it by VM name,
   falling back to `cf/status`; both are team-scoped (admins see every VM). Row labels name the kind
-  of run (`vmRunLabel` in `plugins/vm-status/src/pipeline.tsx`, shared with the VM card): "Building ·
-  <stage>" for provisioning, "Updating · <stage>" for refry, "Destroying", a "· retrying" suffix while a
-  stage waits to retry, and "Failed at <stage>" / "Needs attention" on failure. The time shown is
+  of run (`vmRunLabel` in `plugins/vm-status/src/pipeline.tsx`, shared with the VM page): "Building ·
+  <stage>", "Modifying · <stage>", "Re-applying configuration · <stage>", "Starting"/"Stopping"/
+  "Rebooting", "Updating OS", "Destroying", a "· retrying" suffix while a stage waits to retry, and
+  "Failed at <stage>" / "<Action> failed" / "Needs attention" on failure. Otherwise the summary's
+  health check decides: "Running", "Stopped", "Not found in AWS" (Home has a Stopped filter). The time shown is
   absolute and labelled: "Ready since …" from `cf/ready-at`, otherwise "Requested …".
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
@@ -78,15 +84,24 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   stage fails for good, `finalize` records `cf/status: failed` and the run waits for a person:
   **Retry** (fresh attempt budget, then continue) or, for `software` and `ad-join` only, **Skip**.
   Admins and members of the run's team can do either. Destroy supersedes any other active run of
-  that VM; a new refry supersedes a failed refry. Stage lists are code, not configuration.
-  Routes under `/api/vms`: `GET /runs/:id`, `GET /runs?name=`, `GET /summary`,
-  `POST /runs/:id/retry|skip`, `POST /runs` (refry/destroy, from `cf:vm:run`) and `POST /requests`
-  (provision admission, from `cf:vm:dispatch`). Run visibility is team-scoped like the catalog.
+  that VM; any new run supersedes a failed day-2 run. Run kinds: provision, modify, reapply, power
+  (start/stop/reboot), update (OS updates), destroy. Stage lists are code, not configuration.
+  Routes under `/api/vms`: `GET /runs/:id`, `GET /runs?name=`, `GET /summary`, `GET /observed/:name`,
+  `POST /runs/:id/retry|skip`, `POST /runs` (day-2 runs, from the VM page and `cf:vm:run`) and
+  `POST /requests` (provision admission, from `cf:vm:dispatch`). Run visibility is team-scoped like
+  the catalog. `POST /runs` diffs a Modify against the entity spec and refuses (409) operations the
+  health check shows cannot work (for example Reboot on a stopped VM).
+- **VM health check** (`plugins/cf-backend/src/observed.ts`, CONTRACTS.md §8.3): only where
+  `computeFactory.demoAutomation` is on, a 30-second scheduled task (and a scan after each finished
+  day-2 run) reads `ec2:DescribeInstances` and `ec2:DescribeInstanceStatus` for `cf:poc=true`
+  instances with the host role (infra policy `observe-vms`, read-only) and keeps the result in memory:
+  state, status checks, type, public IP, request ID and team per `cf:vm` tag. `GET /observed/:name`
+  and `/summary` expose it team-scoped. Locally it is off (`enabled: false`).
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
 - The Scaffolder task page is the stock one, wrapped by `packages/app/src/VmTaskRedirect.tsx`: when a
-  `vm-request`, `vm-refry` or `vm-destroy` task completes successfully, the browser goes straight to its
+  `vm-request` or `vm-modify` task completes successfully, the browser goes straight to its
   run page (`/vms/runs/<id>`, history replaced, so Back returns to the form). It takes the run from a
   same-origin `/vms/runs/<n>` output link (or a numeric `runId` in the task's completion output; step
   outputs are not visible to the stock task API). Failed or cancelled tasks (quota, conflicts) stay on
@@ -119,10 +134,10 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     re-add beside an instance type). `VmSizePicker` (cards only, on a `size` string) stays registered for
     the earlier template revision.
   - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes` (`t3.micro`–`t3.large`); while it is on,
-    other types are greyed out and unselectable, and `/api/vms/requests` rejects them (403).
+    other types are greyed out and unselectable, and `/api/vms/requests` and Modify reject them (403).
   - The home row, VM header and VM card show the launched type from `cf/instance-type`, else the
-    requested `instanceType` ("Custom · …") or the type the size maps to now. The size badge shows the
-    size (`XS`…`L`) or `◆` for a custom type.
+    requested `instanceType` ("Custom · …") or the type the size maps to now. Home's size badge shows the
+    size (`XS`…`L`) or `◆` for a custom type. The Modify form reuses `VmComputePicker`.
 - `packages/app/src/ClientMonitor.tsx` (app-root element) and `clientLog.ts`:
   - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
     bundle. Every 60 seconds and on tab focus, the tab fetches `index.html` (served `no-store`) and
@@ -239,7 +254,7 @@ Source inspection against Backstage tag `v1.56.0`:
 
 - `plugins/scaffolder-backend/src/scaffolder/actions/builtin/catalog/fetch.ts`
   passes `credentials: await ctx.getInitiatorCredentials()` to catalog lookups.
-  Thus Agent B's destroy/refry `catalog:fetch` is not a privileged service lookup.
+  Thus day-2 runs (`POST /api/vms/runs`) read the VM with the user's credentials, not a privileged service lookup.
 - `plugins/search-backend/src/service/AuthorizedSearchEngine.ts` authorizes each
   result's resource reference when a document type's visibility permission is
   conditional. The catalog collator supplies `catalogEntityReadPermission` and
@@ -276,7 +291,7 @@ is exactly 12 hours; key ID is the catalog username.
 Demo mode defaults **off**. On Home, platform admins can enable/disable it without redeploying.
 Enabling destroys oldest excess VMs, keeping the newest three per requesting account, and gives
 existing ready/failed VMs five minutes from enable time. New VMs get five minutes from first readiness
-(or terminal failure if never ready). Refry does not extend the deadline. A fourth request is refused;
+(or terminal failure if never ready). Day-2 runs, including stop, do not extend the deadline. A fourth request is refused;
 queued, provisioning, failed and destroying VMs all occupy quota until their inventory is gone.
 Quotas are per original requester, not per team, and include admins.
 
@@ -332,7 +347,7 @@ to the `mock-rest` plugin's `/api/mock-rest/servicenow` route. The receiver retu
 `{number: "RITM…", status: "created", mock: true, requestId}`, and the stage shows
 "RITM… created (mock ServiceNow)" on the run page. The number is deterministic for a request ID, but
 the receiver is stateless: no real ticket, approval, record lookup, persistence or
-provisioning-status update is implemented. Refry/destroy do not call this demo endpoint.
+provisioning-status update is implemented. Day-2 runs do not call this demo endpoint.
 
 The endpoint accepts only Backstage service credentials from `plugin:vms`; it is not an anonymous
 public webhook. The workflow token is restricted to `catalog` and `vms`, where it can only call the
@@ -378,7 +393,8 @@ the arm64 image; it never copies macOS node_modules. `openssh-client` is present
 This POC does not use unit-test scaffolding. Verification uses static checks, the platform's existing
 offline workflow integration check, and focused browser smoke checks. Browser checks cover the run
 page (running, retrying with countdown, failed with Retry/Skip, Skip confirmation, succeeded, earlier
-attempts, API errors, polling stop/resume), the VM card's latest run and destroyed state, the list
+attempts, API errors, polling stop/resume), the VM page's latest run, live Running/Stopped state,
+day-2 action dialogs and the requests they post, Modify prefill and destroyed state, the list
 summary join and fallback, the demo panel's `vms` routes, and unchanged stock task controls; fixture
 data alone does not verify a real VM run. The task fixture serves `/events` as a long-poll endpoint and
 fails if the page opens `/eventstream`. Against a built (hashed) frontend it also simulates a deploy

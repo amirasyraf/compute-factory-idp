@@ -12,6 +12,7 @@ import {
   runStations,
   runVmStatus,
   useRunSummary,
+  ObservedVm,
   RunView,
   getVmConfiguration,
   sizeBadge,
@@ -31,11 +32,18 @@ import { DemoModePanel } from '../../DemoModePanel';
 const REQUEST_VM = '/create/templates/default/vm-request';
 const SSH_CERT = '/create/templates/default/ssh-cert';
 
-type Filter = 'all' | 'building' | 'ready' | 'failed' | 'destroying';
+type Filter =
+  | 'all'
+  | 'building'
+  | 'ready'
+  | 'stopped'
+  | 'failed'
+  | 'destroying';
 const FILTERS: { id: Filter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'building', label: 'In progress' },
   { id: 'ready', label: 'Ready' },
+  { id: 'stopped', label: 'Stopped' },
   { id: 'failed', label: 'Failed' },
   { id: 'destroying', label: 'Destroying' },
 ];
@@ -289,9 +297,11 @@ type Row = {
   entity: Entity;
   state: VmState;
   run?: RunView;
+  /** Health check: undefined = not known, null = no instance found in AWS. */
+  observed?: ObservedVm | null;
 };
 
-function VmRow({ entity, state, run }: Row) {
+function VmRow({ entity, state, run, observed }: Row) {
   const classes = useStyles();
   const annotations = entity.metadata.annotations ?? {};
   const processes = runProcesses(run);
@@ -299,7 +309,8 @@ function VmRow({ entity, state, run }: Row) {
   const desired = getVmConfiguration(entity.spec);
   const sizeText = useVmSizeText(entity);
   const color = vmStateColor(state);
-  const ip = annotations['cf/public-ip'];
+  const ip =
+    observed === undefined ? annotations['cf/public-ip'] : observed?.publicIp;
   const user = annotations['cf/ssh-user'] || 'ubuntu';
   const runUrl = run ? `/vms/runs/${run.id}` : undefined;
   const namespace = entity.metadata.namespace ?? 'default';
@@ -358,7 +369,7 @@ function VmRow({ entity, state, run }: Row) {
               }}
             >
               <i className={classes.dot} style={{ background: color }} />
-              {vmRunLabel(run, annotations['cf/status'])}
+              {vmRunLabel(run, annotations['cf/status'], observed)}
             </div>
           </div>
         </div>
@@ -427,7 +438,7 @@ function VmRow({ entity, state, run }: Row) {
 
 export function HomePage() {
   const classes = useStyles();
-  const { runs, error: summaryError } = useRunSummary();
+  const { runs, observed, error: summaryError } = useRunSummary();
   const catalog = useApi(catalogApiRef);
   const identity = useApi(identityApiRef);
   const [vms, setVms] = useState<Entity[]>();
@@ -498,32 +509,40 @@ export function HomePage() {
       failed: 0,
       building: 1,
       ready: 2,
-      other: 3,
-      destroying: 4,
+      stopped: 3,
+      other: 4,
+      destroying: 5,
     };
     return (vms ?? [])
-      .map(entity => ({
-        entity,
-        run: runs[entity.metadata.name],
-        state: vmState(
-          runVmStatus(
-            runs[entity.metadata.name],
-            entity.metadata.annotations?.['cf/status'],
+      .map(entity => {
+        const name = entity.metadata.name;
+        const seen = name in observed ? observed[name] : undefined;
+        return {
+          entity,
+          run: runs[name],
+          observed: seen,
+          state: vmState(
+            runVmStatus(
+              runs[name],
+              entity.metadata.annotations?.['cf/status'],
+              seen,
+            ),
           ),
-        ),
-      }))
+        };
+      })
       .sort(
         (a, b) =>
           rank[a.state] - rank[b.state] ||
           a.entity.metadata.name.localeCompare(b.entity.metadata.name),
       );
-  }, [vms, runs]);
+  }, [vms, runs, observed]);
 
   const counts = useMemo(() => {
     const c: Record<Filter, number> = {
       all: rows.length,
       building: 0,
       ready: 0,
+      stopped: 0,
       failed: 0,
       destroying: 0,
     };
@@ -538,6 +557,7 @@ export function HomePage() {
     all: undefined,
     building: vmColors.blue,
     ready: vmColors.green,
+    stopped: vmColors.grey,
     failed: vmColors.red,
     destroying: vmColors.grey,
   };

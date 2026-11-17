@@ -562,5 +562,14 @@ export function createDemo(options: {
     }
   }
 
-  return { sweep, state, settings, cleanupCheck, request };
+  /** Demo mode limits explicit instance types (requests and Modify); sizes are always allowed. */
+  async function allowsInstanceType(instanceType: string | undefined) {
+    return (
+      instanceType === undefined ||
+      !(await getMode()).enabled ||
+      demoInstanceTypes.includes(instanceType)
+    );
+  }
+
+  return { sweep, state, settings, cleanupCheck, request, allowsInstanceType };
 }

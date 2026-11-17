@@ -1,5 +1,5 @@
 import { makeStyles } from '@material-ui/core';
-import { RunView } from './runs';
+import { ObservedVm, RunView } from './runs';
 
 export type PipelineStatus =
   | 'pending'
@@ -23,7 +23,7 @@ export const PROCESS_ORDER = [
 
 export type ProcessName = string;
 
-/** Provision run stations. Refry and destroy use their own ordered run stages. */
+/** Provision run stations. Other runs use their own ordered run stages. */
 export const STATIONS: { process: ProcessName; label: string }[] = [
   { process: 'servicenow', label: 'ServiceNow' },
   { process: 'register', label: 'Register' },
@@ -38,10 +38,11 @@ export const STATIONS: { process: ProcessName; label: string }[] = [
 export function stageLabel(id: string): string {
   return (
     (
-      { 'ad-join': 'AD join', servicenow: 'ServiceNow request' } as Record<
-        string,
-        string
-      >
+      {
+        'ad-join': 'AD join',
+        servicenow: 'ServiceNow request',
+        'os-update': 'OS update',
+      } as Record<string, string>
     )[id] ?? id[0].toUpperCase() + id.slice(1)
   );
 }
@@ -81,7 +82,13 @@ export function statusLabel(status: PipelineStatus): string {
   }
 }
 
-export type VmState = 'ready' | 'building' | 'failed' | 'destroying' | 'other';
+export type VmState =
+  | 'ready'
+  | 'building'
+  | 'failed'
+  | 'destroying'
+  | 'stopped'
+  | 'other';
 
 export const vmColors = {
   ink: '#111316',
@@ -96,9 +103,17 @@ export const vmColors = {
 
 export function vmState(status: string | undefined): VmState {
   if (status === 'ready') return 'ready';
-  if (status === 'failed') return 'failed';
-  if (status === 'destroying') return 'destroying';
-  if (status === 'provisioning' || status === 'frying') return 'building';
+  if (status === 'failed' || status === 'missing') return 'failed';
+  if (status === 'destroying' || status === 'shutting-down')
+    return 'destroying';
+  if (status === 'stopped') return 'stopped';
+  if (
+    status === 'provisioning' ||
+    status === 'frying' ||
+    status === 'pending' ||
+    status === 'stopping'
+  )
+    return 'building';
   return 'other';
 }
 
@@ -147,32 +162,90 @@ export function vmStateLabel(
   return status ? status[0].toUpperCase() + status.slice(1) : 'Unknown';
 }
 
-/** One vocabulary for Home, Resources and the VM's compact pipeline card. */
-export function vmRunLabel(run?: RunView, fallback?: string): string {
-  if (!run)
-    return fallback === 'failed'
-      ? 'Needs attention'
-      : vmStateLabel(fallback, {});
+const RUN_NOUN: Record<string, string> = {
+  provision: 'Build',
+  modify: 'Modify',
+  reapply: 'Re-apply',
+  update: 'OS update',
+  destroy: 'Destroy',
+  start: 'Start',
+  stop: 'Stop',
+  reboot: 'Reboot',
+};
+const RUN_VERB: Record<string, string> = {
+  provision: 'Building',
+  modify: 'Modifying',
+  reapply: 'Re-applying configuration',
+  update: 'Updating OS',
+  start: 'Starting',
+  stop: 'Stopping',
+  reboot: 'Rebooting',
+};
+
+/** What a run does, by name: power runs are named by their single stage. */
+export function runNoun(run: RunView): string {
+  const key = run.kind === 'power' ? run.stages[0]?.id : run.kind;
+  return RUN_NOUN[key ?? ''] ?? 'Run';
+}
+
+/** The VM as AWS reports it (undefined = not known, null = no instance found). */
+export function observedLabel(observed: ObservedVm | null | undefined) {
+  if (observed === undefined) return undefined;
+  if (observed === null) return 'Not found in AWS';
+  if (observed.state === 'running')
+    return observed.health === 'impaired'
+      ? 'Running · status checks failing'
+      : 'Running';
+  return (
+    {
+      stopped: 'Stopped',
+      stopping: 'Stopping',
+      pending: 'Starting',
+      'shutting-down': 'Terminating',
+    }[observed.state] ?? observed.state
+  );
+}
+
+/** One vocabulary for Home, Resources and the VM page. */
+export function vmRunLabel(
+  run?: RunView,
+  fallback?: string,
+  observed?: ObservedVm | null,
+): string {
+  const settled = () =>
+    (fallback === 'ready' || run?.status === 'succeeded'
+      ? observedLabel(observed)
+      : undefined) ??
+    (run?.status === 'succeeded' ? 'Ready' : vmStateLabel(fallback, {}));
+  if (!run) return fallback === 'failed' ? 'Needs attention' : settled();
   // A stage that failed for good. While `finalize` records that failure the run is still
   // `running`, but the user-facing state is already a failure.
   const failed =
     run.stages.find(
       stage => stage.status === 'failed' && stage.id !== 'finalize',
     ) ?? run.stages.find(stage => stage.status === 'failed');
-  if (run.status === 'failed' || (run.status === 'running' && failed))
+  if (run.status === 'failed' || (run.status === 'running' && failed)) {
+    if (run.kind === 'power' || run.kind === 'update')
+      return `${runNoun(run)} failed`;
     return failed ? `Failed at ${stageLabel(failed.id)}` : 'Needs attention';
-  if (run.status === 'cancelled')
-    return `${
-      { provision: 'Build', refry: 'Update', destroy: 'Destroy' }[run.kind]
-    } cancelled`;
+  }
+  if (run.status === 'cancelled') {
+    // A cancelled day-2 run leaves the VM as it was.
+    if (run.kind === 'provision' || run.kind === 'destroy')
+      return `${runNoun(run)} cancelled`;
+    return settled();
+  }
   const active = run.stages.find(stage =>
     ['running', 'retrying'].includes(stage.status),
   );
   const retrying = active?.status === 'retrying' ? ' · retrying' : '';
   if (run.kind === 'destroy') return `Destroying${retrying}`;
-  if (run.status === 'succeeded') return 'Ready';
-  const verb = run.kind === 'refry' ? 'Updating' : 'Building';
-  return `${verb}${active ? ` · ${stageLabel(active.id)}` : ''}${retrying}`;
+  if (run.status === 'succeeded') return settled();
+  if (run.kind === 'power' || run.kind === 'update')
+    return `${RUN_VERB[run.stages[0]?.id] ?? RUN_VERB[run.kind]}${retrying}`;
+  return `${RUN_VERB[run.kind] ?? 'Working'}${
+    active ? ` · ${stageLabel(active.id)}` : ''
+  }${retrying}`;
 }
 
 /** Absolute, provenance-labelled times, not an ambiguous age of the current run. */

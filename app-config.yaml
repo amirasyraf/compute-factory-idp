@@ -16,8 +16,8 @@ app:
             $not:
               kind: resource
               spec.type: vm
-    # Create lists only "Request a VM". Refry, destroy and SSH certificate act on an existing VM
-    # and open from the VM page (prefilled) and Home; their /create/templates/... URLs still work.
+    # Create lists only "Request a VM". Modify (vm-modify) opens prefilled from the VM page and
+    # SSH certificate from the VM page and Home; their /create/templates/... URLs still work.
     - sub-page:scaffolder/templates:
         config:
           templateFilter:

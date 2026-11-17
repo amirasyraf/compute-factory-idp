@@ -258,8 +258,9 @@ stops are ticks, not smaller dots or completed stops.
 
 An ordered list, labelled "Pipeline stages", distributes the run's ordered stages equally.
 Provision has eight stations: ServiceNow request → Register → Provision → Baseline → Software → AD join → Access → Finalize.
-Refry shows Configure (skipped when not applicable), the selected stage and Finalize;
-destroy shows Destroy and Finalize. Skipped not-applicable stages remain visible. Bake is not a station.
+Modify shows Configure, Provision, Software and AD join (each skipped when unchanged) and Finalize;
+re-apply shows Baseline, Software, AD join, Access and Finalize; power and OS-update runs are a
+single station (Start, Stop, Reboot or OS update); destroy shows Destroy and Finalize. Skipped not-applicable stages remain visible. Bake is not a station.
 
 Each station owns its arriving segment; the first has none. Geometry communicates
 the process status:
@@ -300,15 +301,20 @@ Overall VM state and process state are separate concepts:
 | `building`   | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Home filter calls this In progress. |
 | `failed`     | `failed`                   | Failed at the first failed station, otherwise Failed; red marker and darker red text.                                                     |
 | `destroying` | `destroying`               | Destroying; grey marker and retired line.                                                                                                 |
+| `stopped`    | `ready` + health check `stopped` | Stopped; grey. Home filter Stopped. A `ready` VM with a running instance reads Running; one with no instance, Not found in AWS (red). |
 | `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter.                                                                |
 
 Attention helpers choose the first failed stage before a running/retrying stage.
-A known run takes precedence over coarse catalog status. The shared `vmRunLabel`
-names the operation on Home, Resources and the VM card: provision is Building ·
-<stage>, refry is Updating · <stage>, destroy is Destroying. A retrying stage adds
-· retrying. A failed run names Failed at <stage>, or Needs attention when the
-failed stage is not known. Successful provision/refry runs show Ready; cancelled
-runs explicitly name the cancelled operation. Destroyed is never inferred from
+A known active or failed run takes precedence over coarse catalog status. The shared
+`vmRunLabel` names the operation on Home, Resources and the VM header: provision is
+Building · <stage>, modify is Modifying · <stage>, re-apply is Re-applying configuration
+· <stage>, power runs are Starting / Stopping / Rebooting, OS updates Updating OS, destroy is
+Destroying. A retrying stage adds · retrying. A failed run names Failed at <stage> (power and
+OS update: Stop failed, OS update failed…), or Needs attention when the failed stage is not
+known. After a successful or cancelled day-2 run the label comes from the health check
+(Running, Running · status checks failing, Stopped, Stopping, Starting, Not found in AWS),
+or Ready when no health check is available; cancelled provision/destroy runs name the
+cancelled operation. Destroyed is never inferred from
 success alone. Color/filter state remains separate from this human wording.
 
 ### Buttons, fields and browser surfaces
@@ -360,20 +366,27 @@ State, Pipeline, Activity time, Owner and Lifecycle columns (Title is hidden). M
 empty lists use stock column selection. Normal users' kind UI is restricted to
 Resource; admins retain the full picker. This is not a new API security boundary.
 
-VM pages replace the entity header with Resources breadcrumb, size bullet, VM
-name, favourite star, team, OS/platform, lifecycle and inventory-source link.
+VM pages replace the entity header with Resources breadcrumb, VM name, a state pill
+(dot + live label), favourite star, the day-2 action bar (Start or Stop, Reboot, Modify,
+and a ⋯ menu with Apply OS updates, Re-apply configuration and red Destroy VM), and a meta
+line with team, OS/platform and size. Every action except Modify opens a confirm dialog;
+Destroy requires typing the VM name. While a run is active, the provision is unfinished or
+no instance exists, only Destroy is enabled (disabled buttons say why in a tooltip); a
+stopped VM disables Reboot, Modify, OS updates and Re-apply ("Start the VM first").
 Section tabs appear only when there is more than one; otherwise a spacer is used.
-The stock About card is hidden only for VMs, whose content cards precede info
-cards. The VM pipeline card contains the latest run (`/runs?name=<vm>&limit=1`, checked
-about every five seconds), a compact run summary, last catalog-check note,
-Access and Desired configuration. Catalog facts refresh every ten seconds, including
-after terminal runs, to discover later destruction. SSH certificate, orchestrator run, prefilled refry and destroy
-links remain reachable. Ready promotes certificate access; failed promotes the
-run link. Destroy is a red-text outlined action here, not home's filled red style.
-While destroying, only the destroy run link remains (promoted) and the `ssh`
-command is hidden. Once a refresh finds the entity gone, the card becomes a
-terminal "Destroyed" notice with the run link and Back to Resources; it is not
-claimed until the catalog no longer returns the entity.
+The stock About card is hidden only for VMs. The header and body share one poller per VM
+(`vmLive.ts`): the last 10 runs (`/runs?name=<vm>&limit=10`, every five seconds), the
+health check (`/observed/<vm>`, every 15 seconds) and the catalog entity (every ten seconds,
+to follow Modify and discover destruction). The body is a two-column grid (one column below
+1100px): **Connect** (copyable `ssh` command from the observed public IP, Get SSH certificate,
+promoted when ready; a stopped VM explains that starting gives a new IP), **Activity** (the
+active or failed run's compact summary with Retry/Skip, then a History list of runs with kind,
+status, requester and time, each linking to its run page), **Configuration** (size, software
+chips, AD join, tags; a Modify link) and **Details** (health-check state and age, instance ID,
+public IP, requester, first ready, lifecycle, inventory source). Once a refresh finds the
+entity gone, the pill reads Destroyed and the body becomes a "Removed from the catalog" notice
+with the destroy run link and Back to Resources; it is not claimed until the catalog no
+longer returns the entity, and polling stops.
 The compact run summary shows its kind/number and status chip, requester/team,
 the line, the current or failed stage and its inline error, permitted Retry/Skip
 controls, and a View run details link. It deliberately has no stage list, job
@@ -435,7 +448,7 @@ Demo controls and the compute picker's restrictions discover `vms`, using
   stepper, task controls/logs/output and settings profile/identity cards. Other
   entity pages retain their stock entity content/About card. Plain page themes
   apply to these surfaces but do not make them entirely bespoke.
-- **Task handoff:** VM request/refry/destroy tasks finish after creating an
+- **Task handoff:** VM request/modify tasks finish after creating an
   orchestrator run. `VmTaskRedirect.tsx` wraps the new frontend system's stock
   task sub-page, watches the existing long-poll task API and replaces the task
   history entry with the run page after successful completion. It accepts a
