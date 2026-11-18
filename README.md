@@ -477,7 +477,8 @@ ships it through a `registry:2` service on the host,
 bound to `127.0.0.1:15000` there and reached through an SSH tunnel on local port 15000:
 `docker push` uploads only compressed layers the host lacks (usually just the app bundle), and the
 host pulls `localhost:15000/compute-factory-idp:latest`. The rollout verifies the pulled and running image
-IDs match, reloads Caddy, and reports deployment timings. The first deployment to a new host sends all
+IDs match, and reports deployment timings. A fresh Caddy reads its config at startup; the script
+reloads a reused running Caddy with bounded retries. The first deployment to a new host sends all
 layers. Requires Docker, local Compose, and the local
 `~/.ssh/id_ed25519`. It is non-interactive, uses disposable-host SSH options
 without reading/writing known_hosts, and uploads `.env` with mode 0600.

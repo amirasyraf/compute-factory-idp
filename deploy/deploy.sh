@@ -92,12 +92,25 @@ expected=$1
 docker compose pull backstage
 actual=$(docker image inspect --format '{{.Id}}' localhost:15000/compute-factory-idp:latest)
 [[ "$actual" == "$expected" ]] || { echo "Pulled $actual, expected $expected; not restarting Backstage" >&2; exit 1; }
+previous_caddy=$(docker compose ps --quiet caddy)
 docker compose up -d --remove-orphans
 container=$(docker compose ps --all --quiet backstage)
 [[ -n "$container" && "$(docker inspect --format '{{.Image}}' "$container")" == "$expected" ]] \
   || { echo "Backstage container does not use $expected" >&2; exit 1; }
-# A running Caddy does not re-read its bind-mounted Caddyfile.
-docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null
+# A new Caddy reads the packaged file at startup; only a reused running container needs a reload.
+caddy=$(docker compose ps --all --quiet caddy)
+[[ -n "$caddy" ]] || { echo 'Caddy container was not created' >&2; exit 1; }
+if [[ "$caddy" == "$previous_caddy" ]]; then
+  reloaded=false
+  for _ in $(seq 1 15); do
+    if docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile </dev/null; then
+      reloaded=true
+      break
+    fi
+    sleep 2
+  done
+  [[ "$reloaded" == true ]] || { echo 'Caddy could not reload its config' >&2; exit 1; }
+fi
 echo "Backstage container verified: $expected"
 REMOTE
 echo "Roll out artifact: $((SECONDS - start))s"
