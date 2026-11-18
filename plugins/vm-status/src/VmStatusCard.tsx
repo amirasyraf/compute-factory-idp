@@ -192,13 +192,13 @@ export function VmStatusCard() {
 
   if (live.removed) {
     return (
-      <InfoCard title="Removed from the catalog">
+      <InfoCard title="Removed from the Catalog">
         <p className={classes.muted}>
           This VM was destroyed and its inventory record deleted.
         </p>
         <p>
           {vm.latest && (
-            <Link to={`/vms/runs/${vm.latest.id}`}>View the destroy run</Link>
+            <Link to={`/vms/runs/${vm.latest.id}`}>View the Destroy Run</Link>
           )}{' '}
           · <Link to="/catalog">Back to Resources</Link>
         </p>
@@ -238,7 +238,7 @@ export function VmStatusCard() {
             style={{ marginRight: 10 }}
             onClick={() => setTerminal(true)}
           >
-            Open terminal
+            Open Terminal
           </Button>
         )}
       </>
@@ -272,7 +272,7 @@ export function VmStatusCard() {
         <InfoCard title="Connect">
           {connect}
           <Link to={SSH_CERT} className={classes.link}>
-            Get SSH certificate
+            Get SSH Certificate
           </Link>
           {terminal && (
             <Suspense fallback={null}>
@@ -371,7 +371,7 @@ export function VmStatusCard() {
                     </span>
                   ))}
             </Fact>
-            <Fact label="AD join">
+            <Fact label="AD Join">
               {desired.adJoin === 'Requested (mock)'
                 ? 'Joined (mock)'
                 : 'Not joined'}
@@ -398,7 +398,7 @@ export function VmStatusCard() {
               )}
             </Fact>
             {annotations['cf/ready-at'] && (
-              <Fact label="First ready">
+              <Fact label="First Ready">
                 {when(annotations['cf/ready-at'])}
               </Fact>
             )}
@@ -407,7 +407,7 @@ export function VmStatusCard() {
             </Fact>
             {source && (
               <Fact label="Inventory">
-                <Link to={source}>View source</Link>
+                <Link to={source}>View Source</Link>
               </Fact>
             )}
           </dl>

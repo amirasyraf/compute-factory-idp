@@ -16,6 +16,7 @@ import { ARM_VERSIONS, armList, azureReader } from './azure';
 import { message } from './github';
 import {
   COMING_SOON,
+  imageVersions,
   PLATFORMS,
   fallbackLabel,
   loadPlatform,
@@ -389,12 +390,7 @@ export const vmSizesPlugin = createBackendPlugin({
                       os: Object.entries(info.os).map(([os, item]) => ({
                         id: os,
                         label: item.label ?? os,
-                        versions: Array.isArray(item.versions)
-                          ? item.versions.filter(
-                              (version): version is string =>
-                                typeof version === 'string',
-                            )
-                          : [],
+                        versions: imageVersions(info, os),
                       })),
                       reservedTagPrefixes: info.reservedTagPrefixes,
                       forbiddenTagKeyCharacters: info.forbiddenTagKeyCharacters,

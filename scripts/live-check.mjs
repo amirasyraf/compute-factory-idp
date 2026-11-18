@@ -23,15 +23,50 @@ try {
   await page.locator('input[name=password]').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(
-    page.getByRole('heading', { name: /^Good (morning|afternoon|evening)/ }),
+    page.getByRole('heading', { name: /^Good (Morning|Afternoon|Evening)/ }),
   ).toBeVisible();
   console.log(`SIGN-IN PASS: ${user}`);
 
+  await expect(
+    page.getByRole('heading', { name: 'Your Resources' }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Compute' })).toBeVisible();
+  await page.getByRole('link', { name: 'View All Virtual Machines' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Virtual Machines' }),
+  ).toBeVisible();
+  await page
+    .getByRole('link', { name: 'Launch a Virtual Machine' })
+    .first()
+    .click();
+  await expect(
+    page.getByRole('heading', { name: 'Choose a Platform' }),
+  ).toBeVisible();
+  await expect(page.getByText('Ubuntu')).toHaveCount(0);
+  for (const platform of ['Azure', 'AWS']) {
+    await page.getByRole('link', { name: platform, exact: true }).click();
+    const image = page.getByRole('radio', { name: 'Ubuntu 26.04' });
+    await expect(image).toBeEnabled();
+    await image.check();
+    if (platform === 'Azure') {
+      await page.getByRole('button', { name: 'Continue' }).click();
+      await expect(
+        page.getByText('Ubuntu 26.04', { exact: true }),
+      ).toBeVisible();
+      await page.getByRole('link', { name: 'Change', exact: true }).click();
+      await expect(image).toBeChecked();
+      await page.getByRole('link', { name: 'Back', exact: true }).click();
+    }
+  }
   // Real vm-sizes endpoint: AWS sizes.json from GitHub plus live EC2 specs.
   const sizesResponse = page.waitForResponse(response =>
-    response.url().includes('/api/vm-sizes/sizes'),
+    response.url().includes('/api/vm-sizes/sizes?platform=aws'),
   );
-  await page.goto(`${base}/create/templates/default/vm-request`);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('Ubuntu 26.04', { exact: true })).toBeVisible();
+  console.log(
+    'PRODUCT UI PASS: grouped Home, Virtual Machines, AWS and Azure image selection and form prefill',
+  );
   const sizes = await (await sizesResponse).json();
   if (sizes.error) throw new Error(`vm-sizes error: ${sizes.error}`);
   for (const item of sizes.sizes) {
@@ -59,7 +94,7 @@ try {
     response.url().includes('/api/vm-sizes/instance-types'),
   );
   await page
-    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
+    .getByRole('button', { name: /Advanced: Choose a Specific AWS/ })
     .click();
   const catalog = await (await catalogResponse).json();
   if (!Array.isArray(catalog.types) || catalog.types.length < 50)

@@ -32,9 +32,9 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     `project_code` rows and optional extra tags; `/api/vms/requests` rejects requests without them.
     Custom spec validation is performed by the platform `register` stage; malformed custom fields are
     rendered defensively by the card.
-  - It also exports `PipelineLine` (the run's stages drawn as a transit line; skipped stages are
-    non-stops; every run kind draws its own stages) and the summary hook used by Home and
-    Resources. For VM entities only it supplies an `EntityHeaderLayoutBlueprint` header (name, state
+   - It also exports `PipelineLine` (the run's stages drawn as a transit line; skipped stages are
+     non-stops; every run kind draws its own stages) and the summary hook used by Home,
+     Virtual Machines and Resources. For VM entities only it supplies an `EntityHeaderLayoutBlueprint` header (name, state
     pill, favourite star, actions, team, OS/platform, size) and an `EntityContentLayoutBlueprint`
     layout that puts the VM card first.
     The stock About card is hidden for VMs through `entity-card:catalog/about` config (`$not` filter);
@@ -50,28 +50,31 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   sidebar, and supplies that bar through `NavContentBlueprint` (Home, Resources, Launch, Search,
   search modal, settings and the signed-in user). The stock template list (`page:scaffolder`,
   `/create`) is no longer in the bar; its routes still work.
-- `packages/app/src/launch/`: the **Launch** page (`page:launch`, `/launch`). The IDP offers products,
-  not only VMs: product cards are Scaffolder templates tagged `product` (name from the `cf/product`
-  annotation, else the title). A product with `cf/launch-flow: platform-image` continues to platform
-  cards (`/launch/<template>`, from `GET /api/vm-sizes/platforms`; vSphere is a disabled "Coming soon"
-  card) and image cards (`/launch/<template>/<platform>`: radio, OS name, version dropdown; the only
-  image is preselected), then **Continue** opens the template with
-  `?formData={"compute":{"platform","os"}}`. Other products open their template directly. Each step
-  has its own URL, so Back works; the step trail links to earlier steps. Home's and Resources'
-  **Launch** buttons open the product step. The version is shown but not stored yet.
-- `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` layout that replaces the widget grid
-  with the team's VMs: status counts as filters, and each VM's pipeline line and next action
-  (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
-  make one `GET /api/vms/summary` request per refresh (every 5 seconds) and join it by VM name,
-  falling back to `cf/status`; both are team-scoped (admins see every VM). Row labels name the kind
+- `packages/app/src/products/catalog.ts`: product categories, IDs, resource types, and template names
+   shared by Home, Resources and Launch. The only product is **Compute → Virtual Machines**.
+- `packages/app/src/launch/`: **Launch** (`/launch`) starts with product categories, then products
+   whose registered Scaffolder templates are tagged `product`. At `/launch/compute/virtual-machines`,
+   platform cards show provider names (vSphere is marked **Coming Soon**). The next step shows
+   selectable OS/release cards from `GET /api/vm-sizes/platforms`; the only choice is preselected.
+   **Continue** prefills `compute.{platform,os,imageVersion}`. Admission and the platform workflow
+   validate the selected release; the workflow provisions the newest bake of that release.
+   Earlier steps are linked, the form's **Change** link restores the image selection, and old
+   `/launch/vm-request[/<platform>]` links redirect.
+- `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` for the greeting and **Your Resources**.
+   It groups catalog-visible Resources by category/product, with counts and linked resource rows.
+   VM rows show platform and state. Unclassified catalog resources are listed under **Other Resources**.
+- `packages/app/src/products/VmProductPage.tsx`: **Virtual Machines** (`/products/compute/virtual-machines`)
+   has status filters, each VM's pipeline and next action (SSH certificate or run), Demo Mode and a
+   shortcut to VM platform selection. Home, the product page and Resources join `GET /api/vms/summary`
+   by VM name on refresh (about every 5 seconds), falling back to `cf/status`. VM visibility remains
+   team-scoped (admins see every VM). Status labels name the kind
   of run (`vmRunLabel` in `plugins/vm-status/src/pipeline.tsx`, shared with the VM page): "Building ·
   <stage>", "Modifying · <stage>", "Re-applying configuration · <stage>", "Starting"/"Stopping"/
   "Rebooting", "Updating OS", "Destroying", a "· retrying" suffix while a stage waits to retry, and
   "Failed at <stage>" / "<Action> failed" / "Needs attention" on failure. Otherwise the summary's
-  health check decides: "Running", "Stopped", "Instance not found" (Home has a Stopped filter). The time shown is
+   health check decides: "Running", "Stopped", "Instance not found" (Virtual Machines has a Stopped filter). The time shown is
   absolute and labelled: "Ready since …" from `cf/ready-at`, otherwise "Requested …".
-  Home fills the available content width, matching Resources, with 20px horizontal gutters
-  (16px at or below 760px); its action header and count strip are not capped on wide screens.
+   Home and Virtual Machines use the same full-width gutters as Resources.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder`, plus the `mock-rest` and `vms` plugins (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, `cf:vm:dispatch` and `cf:vm:run`. The two VM
@@ -117,7 +120,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   credential from Secrets Manager `AZURE_READER_SECRET_ID`, `@azure/identity` certificate auth, plain
   `fetch` to ARM). Freshness and refusals use the VM's own platform (from its spec). `GET
 /observed/:name` and `/summary` expose it team-scoped. Locally it is off (`enabled: false`).
-- `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
+- `packages/app/src/DemoModePanel.tsx`: the Virtual Machines page's Demo Mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
 - The Scaffolder task page is the stock one, wrapped by `packages/app/src/VmTaskRedirect.tsx`: when a
@@ -156,7 +159,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     compares free family and regional vCPU quota (Compute usages, cached 5 minutes) with the size's
     vCPUs; sizes over quota are shown greyed out as "Over vCPU quota" (B-series has no quota in this
     subscription and the region allows 10 vCPUs). Cached 1 hour; the last good list is kept on errors.
-  - The platform template's `ui:field: VmComputePicker` on `compute` shows the platform and image chosen
+   - The platform template's `ui:field: VmComputePicker` on `compute` shows the platform and versioned image chosen
     on Launch with a **Change** link (not on Modify: `ui:options.locked`), size **cards** (size,
     instance type, vCPU, memory, network, CPU) and a collapsed **Advanced** picker: category tabs with
     counts, rows grouped by family, search, family/min vCPU/min memory filters, a current-generation
@@ -170,8 +173,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes`: every platform's `sizes.json` values;
     while it is on, other types are greyed out and unselectable, and `/api/vms/requests` and Modify
     reject them (403; 503 while the size files cannot be read).
-  - The home row, VM header and VM card show the launched type from `cf/instance-type`, else the
-    requested `instanceType` ("Custom · …") or the type the size maps to now. Home's size badge shows the
+   - The product-page row, VM header and VM card show the launched type from `cf/instance-type`, else the
+     requested `instanceType` ("Custom · …") or the type the size maps to now. The product-page size badge shows the
     size (`XS`…`L`) or `◆` for a custom type. The Modify form reuses `VmComputePicker`.
 - `packages/app/src/ClientMonitor.tsx` (app-root element) and `clientLog.ts`:
   - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
@@ -210,9 +213,10 @@ The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
 `app.extensions.page:home` mounts Home at `/`, rendered by the Compute Factory home layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
 `packages/app/src/CatalogPage.tsx` overrides `page:catalog` (in `App.tsx`) with a Compute Factory
-page shell: a "Resources" heading and Launch button, with the stock `CatalogFilterLayout`,
+ page shell: a "Resources" heading and Launch button, with the stock `CatalogFilterLayout`,
 the `catalog-filter` extension inputs (including `CatalogKindFilter`) and the stock `CatalogTable`
-for search, sorting and paging. When every listed entity is a VM, the table shows State and
+ for search, sorting and paging. Resource results include a Product column and can be filtered by Type.
+ When every listed entity is a VM, the table shows State and
 Pipeline (the `PipelineLine`, without labels) columns instead of System, Description and Tags;
 other lists keep the stock columns. The stock page's permission-gated Create button, support
 button and export button are not rendered (export was never enabled). Both `page:catalog` and
@@ -323,7 +327,7 @@ is exactly 12 hours; key ID is the catalog username.
 
 ### Demo mode
 
-Demo mode defaults **off**. On Home, platform admins can enable/disable it without redeploying.
+Demo mode defaults **off**. On Virtual Machines, platform admins can enable/disable it without redeploying.
 Enabling destroys oldest excess VMs, keeping the newest three per requesting account, and gives
 existing ready/failed VMs five minutes from enable time. New VMs get five minutes from first readiness
 (or terminal failure if never ready). Day-2 runs, including stop, do not extend the deadline. A fourth request is refused;
@@ -437,13 +441,15 @@ data alone does not verify a real VM run. The task fixture serves `/events` as a
 fails if the page opens `/eventstream`. Against a built (hashed) frontend it also simulates a deploy
 and checks that the new-version banner appears; on the dev server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
-frontend without signing in, dispatching a workflow or changing backend state. It also walks
-Launch → Virtual machine → Azure (vSphere "Coming soon") → Ubuntu → the prefilled form, with Azure
-sizes, a quota-blocked size and Azure tag rules.
+ frontend without signing in, dispatching a workflow or changing backend state. It also walks
+ Home → Compute / Virtual Machines and Launch → Compute → Virtual Machines → platform → image. A
+ multi-release AWS fixture checks selection and submitted form payload; Azure checks a single
+ automatically selected release, live-size presentation with a quota-blocked size, and Azure tag rules.
 Set `WORKFLOW_UI_SCREENSHOTS` to a temporary directory to capture run states, entity cards and lists
 at 1440px and 390px widths during the same fixture smoke. Inspect the images, then delete the directory.
 `scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's
-gitignored `.poc-passwords`) and checks, read-only, the request form's live AWS instance types and
+ gitignored `.poc-passwords`) and checks, read-only, the grouped Home, VM product page, both image
+ pickers, form prefill, the request form's live AWS instance types and
 specs, that the newest own task page receives events by long polling, and that the newest visible VM
 run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy.
 

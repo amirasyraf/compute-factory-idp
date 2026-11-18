@@ -27,6 +27,7 @@ import {
 } from '@internal/plugin-vm-status';
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
+import { productOf, productPath } from './products/catalog';
 
 // Launch starts at the product cards; the IDP offers more than VMs.
 const LAUNCH = '/launch';
@@ -36,8 +37,25 @@ const ObservedContext = createContext<Record<string, ObservedVm | null>>({});
 const observedOf = (map: Record<string, ObservedVm | null>, name: string) =>
   name in map ? map[name] : undefined;
 
-const isVm = (entity: Entity) =>
-  entity.kind.toLowerCase() === 'resource' && entity.spec?.type === 'vm';
+const isVm = (entity: Entity) => productOf(entity)?.resourceType === 'vm';
+
+const productColumn: TableColumn<CatalogTableRow> = {
+  title: 'Product',
+  customSort: (a, b) =>
+    String(
+      productOf(a.entity)?.title ?? a.entity.spec?.type ?? '',
+    ).localeCompare(
+      String(productOf(b.entity)?.title ?? b.entity.spec?.type ?? ''),
+    ),
+  render: ({ entity }) => {
+    const product = productOf(entity);
+    return product ? (
+      <Link to={productPath(product)}>{product.title}</Link>
+    ) : (
+      <>{typeof entity.spec?.type === 'string' ? entity.spec.type : '—'}</>
+    );
+  },
+};
 
 const useStyles = makeStyles({
   root: {
@@ -134,6 +152,7 @@ const vmColumns = (
     ...CatalogTable.columns.createNameColumn({ defaultKind: 'resource' }),
     cellStyle: { whiteSpace: 'nowrap' },
   },
+  productColumn,
   {
     title: 'State',
     customSort: (a, b) =>
@@ -158,7 +177,7 @@ const vmColumns = (
     render: ({ entity }) => <VmLineCell entity={entity} />,
   },
   {
-    title: 'Activity time',
+    title: 'Activity Time',
     sorting: false,
     cellStyle: { minWidth: 170, fontSize: 12.5, color: vmColors.mute },
     render: ({ entity }) => (
@@ -187,7 +206,14 @@ export function CatalogPage({
   const columns: CatalogTableColumnsFunc = context =>
     context.entities.length > 0 && context.entities.every(isVm)
       ? vmColumns(runs)
-      : CatalogTable.defaultColumnsFunc(context);
+      : [
+          ...CatalogTable.defaultColumnsFunc(context),
+          ...(context.entities.some(
+            entity => entity.kind.toLowerCase() === 'resource',
+          )
+            ? [productColumn]
+            : []),
+        ];
   return (
     <RunsContext.Provider value={runs}>
       <ObservedContext.Provider value={observed}>
@@ -197,12 +223,12 @@ export function CatalogPage({
               <div>
                 <h1 className={classes.h1}>Resources</h1>
                 <div className={classes.sub}>
-                  Each virtual machine with its state and pipeline position.
+                  Search and filter resources across products and platforms.
                 </div>
               </div>
               <Link to={LAUNCH} className={classes.primary}>
                 <AddIcon />
-                Launch
+                Launch a Product
               </Link>
             </div>
             {error && (

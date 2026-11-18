@@ -18,7 +18,7 @@ const template = {
     description: 'A team-owned server built from a golden image.',
     tags: ['product'],
     annotations: {
-      'cf/product': 'Virtual machine',
+      'cf/product': 'Virtual Machines',
       'cf/launch-flow': 'platform-image',
     },
   },
@@ -46,12 +46,22 @@ const vm = {
     type: 'vm',
     owner: 'group:default/alpha',
     lifecycle: 'poc',
-    compute: { platform: 'aws', os: 'ubuntu', size: 'M' },
+    compute: {
+      platform: 'aws',
+      os: 'ubuntu',
+      imageVersion: '26.04',
+      size: 'M',
+    },
     configuration: { software: ['git', 'nginx'], adJoin: false },
     billing: { costCenter: 'CC-1234' },
     cloudTags: { environment: 'test' },
   },
   relations: [{ type: 'ownedBy', targetRef: 'group:default/alpha' }],
+};
+const otherResource = {
+  ...vm,
+  metadata: { namespace: 'default', name: 'external-storage' },
+  spec: { type: 'storage', owner: 'group:default/alpha' },
 };
 const task = {
   id: 'workflow-ui-fixture',
@@ -123,6 +133,15 @@ const instance = state => ({
 let observed = instance('running');
 let observedMatrix;
 let operations = [];
+let submittedCompute;
+const vmProductPath = '/products/compute/virtual-machines';
+const vmLaunchPath = '/launch/compute/virtual-machines';
+const requestUrl = `${base}/create/templates/default/vm-request`;
+const prefilled = `${requestUrl}?${new URLSearchParams({
+  formData: JSON.stringify({
+    compute: { platform: 'aws', os: 'ubuntu', imageVersion: '24.04' },
+  }),
+})}`;
 let terminalInput = '';
 let terminalOutput = [];
 let terminalClosed = 0;
@@ -250,6 +269,7 @@ try {
       path.endsWith('/scaffolder/v2/tasks') &&
       route.request().method() === 'POST'
     ) {
+      submittedCompute = route.request().postDataJSON()?.values?.compute;
       await route.fulfill({ status: 201, json: { id: task.id } });
       return;
     } else if (path.endsWith('/events')) {
@@ -330,7 +350,7 @@ try {
             id: 'aws',
             label: 'AWS',
             available: true,
-            os: ubuntu,
+            os: [{ ...ubuntu[0], versions: ['26.04', '24.04'] }],
             ...rules(['aws:'], ''),
           },
           {
@@ -598,6 +618,7 @@ try {
                       enum: ['aws', 'azure'],
                     },
                     os: { type: 'string', default: 'ubuntu', enum: ['ubuntu'] },
+                    imageVersion: { type: 'string' },
                     size: {
                       title: 'Size',
                       type: 'string',
@@ -651,12 +672,20 @@ try {
     await route.fulfill({ json });
   });
   // Real form navigation, but every API including Create is intercepted above.
-  await page.goto(`${base}/create/templates/default/vm-request`);
+  await page.goto(prefilled);
+  await expect(page.getByText('Ubuntu 24.04', { exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: 'L t3.large' }).click();
   await page.getByLabel('cost_center value').fill('CC-fixture');
   await page.getByLabel('project_code value').fill('PROJECT-fixture');
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await page.getByRole('button', { name: 'Create', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/create/tasks/${task.id}$`));
+  expect(submittedCompute).toEqual({
+    platform: 'aws',
+    os: 'ubuntu',
+    imageVersion: '24.04',
+    size: 'L',
+  });
   await expect(
     page.getByText('Start VM pipeline', { exact: true }),
   ).toBeVisible();
@@ -667,7 +696,7 @@ try {
   ).toBeVisible();
   await capture('create-redirect');
   await page.goBack();
-  await expect(page).toHaveURL(`${base}/create/templates/default/vm-request`);
+  await expect(page).toHaveURL(prefilled);
   for (const output of [
     { runId: 42 },
     { links: [{ title: 'Follow run', url: '/vms/runs/42' }] },
@@ -722,7 +751,7 @@ try {
     'Run not found or not visible',
   );
   runReadError = false;
-  await page.getByRole('button', { name: 'Try again', exact: true }).click();
+  await page.getByRole('button', { name: 'Try Again', exact: true }).click();
   const runView = page.getByRole('region', { name: 'VM run 42', exact: true });
   await expect(runView).toBeVisible();
   const serviceNow = page
@@ -789,7 +818,7 @@ try {
   await capture('run-retrying');
   await runView.getByText('Software details', { exact: true }).click();
   await expect(
-    runView.getByText('Earlier attempts (1)', { exact: true }),
+    runView.getByText('Earlier Attempts (1)', { exact: true }),
   ).toBeVisible();
   await expect(
     runView.getByText('First failure', { exact: true }),
@@ -838,7 +867,7 @@ try {
   ).toBeVisible();
   await page
     .getByRole('dialog')
-    .getByRole('button', { name: 'Skip stage', exact: true })
+    .getByRole('button', { name: 'Skip Stage', exact: true })
     .click();
   await expect(
     runView.getByText('Skipped by amirasyraf', { exact: true }),
@@ -964,6 +993,9 @@ try {
   await expect(
     page.getByRole('columnheader', { name: 'Pipeline' }),
   ).toBeVisible();
+  await expect(
+    page.getByRole('columnheader', { name: 'Product' }),
+  ).toBeVisible();
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
   await assertLineFits();
   await capture('resources');
@@ -1017,7 +1049,7 @@ try {
   await expect(page.getByLabel('Pipeline stages')).toBeVisible();
   await expect(page.getByLabel('Run stages')).toHaveCount(0);
   await expect(
-    page.getByRole('link', { name: /View run details/ }),
+    page.getByRole('link', { name: /View Run Details/ }),
   ).toBeVisible();
   await capture('entity-running');
   snapshot = {
@@ -1035,7 +1067,9 @@ try {
     page.getByRole('button', { name: 'Retry', exact: true }),
   ).toBeVisible({ timeout: 10000 });
   await capture('entity-failed');
-  await expect(page.getByText('Ubuntu on AWS', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('Ubuntu 26.04 on AWS', { exact: true }),
+  ).toBeVisible();
   for (const item of ['git', 'nginx'])
     await expect(page.getByText(item, { exact: true })).toBeVisible();
   // A run in progress leaves only Destroy.
@@ -1088,7 +1122,7 @@ try {
   );
   await capture('entity-running-vm');
   terminalOutput = ['Welcome to Ubuntu\r\nubuntu@spec-vm:~$ '];
-  await page.getByRole('button', { name: 'Open terminal' }).click();
+  await page.getByRole('button', { name: 'Open Terminal' }).click();
   const terminalDialog = page.getByRole('dialog');
   await expect(
     terminalDialog.getByRole('status', { name: 'Terminal status' }),
@@ -1148,7 +1182,7 @@ try {
     throw new Error('Start did not post a start run');
   await page.getByRole('button', { name: 'More actions' }).click();
   await expect(
-    page.getByRole('menuitem', { name: /Apply OS updates/ }),
+    page.getByRole('menuitem', { name: /Apply OS Updates/ }),
   ).toHaveAttribute('aria-disabled', 'true');
   await page.getByRole('menuitem', { name: 'Destroy VM' }).click();
   const confirmDestroy = page.getByRole('button', {
@@ -1167,41 +1201,65 @@ try {
   console.log(
     'VM ACTIONS PASS: browser terminal (open, output, typed input, close), live Running/Stopped state, stop/start/destroy confirmations post day-2 runs with request keys, stopped VM disables reboot/modify/updates, Modify prefill (fixture APIs)',
   );
+  listVms = [vm, otherResource];
   await page.goto(`${base}/`);
+  await expect(
+    page.getByRole('heading', { name: /^Good (Morning|Afternoon|Evening)/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Your Resources' }),
+  ).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Compute' })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'Other Resources' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'external-storage' }),
+  ).toBeVisible();
+  await expect(page.getByRole('link', { name: 'spec-vm' })).toHaveAttribute(
+    'href',
+    '/catalog/default/resource/spec-vm',
+  );
+  await expect(page.getByLabel('Pipeline stages')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Demo Mode' })).toHaveCount(0);
+  await capture('home');
+  listVms = [vm];
+  await page.getByRole('link', { name: 'View All Virtual Machines' }).click();
+  await expect(page).toHaveURL(`${base}${vmProductPath}`);
+  await expect(
+    page.getByRole('heading', { name: 'Virtual Machines' }),
+  ).toBeVisible();
   const demoPanel = page.getByRole('region', {
-    name: 'Demo mode',
+    name: 'Demo Mode',
     exact: true,
   });
-  await expect(demoPanel.getByText('Demo mode · Off')).toBeVisible();
-  await demoPanel.getByLabel('Enable demo mode').click();
+  await expect(demoPanel.getByText('Demo Mode · Off')).toBeVisible();
+  await demoPanel.getByLabel('Enable Demo Mode').click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await page
-    .getByRole('button', { name: 'Enable and apply limits', exact: true })
+    .getByRole('button', { name: 'Enable and Apply Limits', exact: true })
     .click();
-  await expect(demoPanel.getByText('Demo mode · On')).toBeVisible();
+  await expect(demoPanel.getByText('Demo Mode · On')).toBeVisible();
   if (!demoSettings)
     throw new Error('Demo toggle did not use /vms/demo/settings');
   demoOn = false;
-  await expect(
-    page.getByRole('heading', { name: /^Good (morning|afternoon|evening)/ }),
-  ).toBeVisible();
   const row = page.getByRole('row', { name: /spec-vm/ });
   await expect(row.getByLabel('Pipeline stages')).toBeVisible();
   await assertLineFits();
-  await capture('home');
+  await capture('virtual-machines');
   await expect(
     row.locator('[title="M · t3.medium · 2 vCPU · 4 GiB · x86_64"]'),
   ).toHaveCount(1);
   await expect(
-    row.getByRole('link', { name: 'Get SSH certificate' }),
+    row.getByRole('link', { name: 'Get SSH Certificate' }),
   ).toBeVisible();
   await page.getByRole('tab', { name: /Failed/ }).click();
   await expect(page.getByText('No machines match this filter.')).toBeVisible();
   assertNoErrors(errors);
   console.log(
-    'HOME UI PASS: top bar, team VM table with pipeline line, next action and empty filter state (fixture APIs)',
+    'HOME AND VM PRODUCT PASS: grouped resources lead to the VM page with pipeline, next action, demo controls and status filters (fixture APIs)',
   );
-  await page.goto(`${base}/create/templates/default/vm-request`);
+  await page.goto(prefilled);
   const card = name => page.getByRole('radio', { name });
   for (const name of ['XS t3.micro', 'S t3.small', 'M t3.medium', 'L t3.large'])
     await expect(card(name)).toBeVisible();
@@ -1213,7 +1271,7 @@ try {
   const types = page.getByRole('table', { name: 'AWS instance types' });
   await expect(types).toHaveCount(0);
   await page
-    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
+    .getByRole('button', { name: /Advanced: Choose a Specific AWS/ })
     .click();
   await expect(types).toBeVisible();
   // Previous generation hidden by default; family grouping and category tabs.
@@ -1231,7 +1289,7 @@ try {
   await types.getByRole('radio', { name: 'm7i.large' }).check();
   await expect(page.getByText('Using instance type m7i.large')).toBeVisible();
   await expect(card('L t3.large')).toHaveAttribute('aria-checked', 'false');
-  await page.getByRole('button', { name: 'Use a size instead' }).click();
+  await page.getByRole('button', { name: 'Use a Size Instead' }).click();
   await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'true');
   // Tags: fixed, greyed-out cost_center/project_code keys with required values; optional rows.
   await expect(page.getByLabel('cost_center key')).toBeDisabled();
@@ -1251,7 +1309,7 @@ try {
   demoOn = true;
   await page.reload();
   await page
-    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
+    .getByRole('button', { name: /Advanced: Choose a Specific AWS/ })
     .click();
   await expect(types.getByRole('radio', { name: 'm7i.large' })).toBeDisabled();
   await expect(types.getByRole('radio', { name: 't3.micro' })).toBeEnabled();
@@ -1259,7 +1317,7 @@ try {
   demoOn = false;
   assertNoErrors(errors);
   console.log(
-    'VM SIZE + TAGS UI PASS: tags table with fixed required cost_center/project_code and optional rows; size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
+    'VM SIZE + TAGS UI PASS: required billing tags and optional rows, size cards, advanced picker, demo restrictions, and launched type on VM detail and product pages (fixture APIs)',
   );
   // Launch: product, platform and image cards, then the template with platform/OS prefilled.
   await page.goto(`${base}/`);
@@ -1275,20 +1333,41 @@ try {
       .getByRole('link', { name: 'Create', exact: true }),
   ).toHaveCount(0);
   await expect(
-    page.getByRole('heading', { name: 'Launch a product' }),
+    page.getByRole('heading', { name: 'Launch a Product' }),
   ).toBeVisible();
-  await page.getByRole('button', { name: /Virtual machine/ }).click();
-  await expect(page).toHaveURL(`${base}/launch/vm-request`);
+  await page
+    .getByRole('main')
+    .getByRole('link', { name: /^Compute/ })
+    .click();
+  await expect(page).toHaveURL(`${base}/launch/compute`);
+  await page.getByRole('link', { name: /^Virtual Machines/ }).click();
+  await expect(page).toHaveURL(`${base}${vmLaunchPath}`);
   await expect(page.getByRole('button', { name: /vSphere/ })).toBeDisabled();
-  await expect(page.getByText('Coming soon')).toBeVisible();
-  await capture('launch-platform');
-  await page.getByRole('button', { name: /^Azure/ }).click();
-  await expect(page).toHaveURL(`${base}/launch/vm-request/azure`);
+  await expect(page.getByText('Coming Soon')).toBeVisible();
   await expect(
-    page.getByRole('heading', { name: 'Choose your image' }),
+    page.getByRole('link', { name: 'AWS', exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole('radio', { name: 'Ubuntu' })).toBeChecked();
-  await expect(page.getByText('Version 26.04')).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Azure', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('Ubuntu')).toHaveCount(0);
+  await capture('launch-platform');
+  await page.getByRole('link', { name: 'AWS', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeEnabled();
+  await page.getByRole('radio', { name: 'Ubuntu 24.04' }).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('Ubuntu 24.04', { exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Change', exact: true }).click();
+  await expect(page.getByRole('radio', { name: 'Ubuntu 24.04' })).toBeChecked();
+  await page.getByRole('link', { name: 'Back', exact: true }).click();
+  await page.getByRole('link', { name: 'Azure', exact: true }).click();
+  await expect(page).toHaveURL(`${base}${vmLaunchPath}/azure`);
+  await expect(
+    page.getByRole('heading', { name: 'Choose an Image' }),
+  ).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeChecked();
+  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeEnabled();
   await capture('launch-image');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(
@@ -1297,7 +1376,7 @@ try {
   await expect(page.getByText('Azure', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Change' })).toHaveAttribute(
     'href',
-    '/launch/vm-request/azure',
+    `${vmLaunchPath}/azure?image=ubuntu%3A26.04`,
   );
   await expect(card('S Standard_D2s_v6')).toHaveAttribute(
     'aria-checked',
@@ -1306,7 +1385,7 @@ try {
   await expect(card('L Standard_D4s_v6')).toBeDisabled();
   await expect(page.getByText('Over vCPU quota').first()).toBeVisible();
   await page
-    .getByRole('button', { name: /Advanced: choose a specific Azure/ })
+    .getByRole('button', { name: /Advanced: Choose a Specific Azure/ })
     .click();
   const azureTypes = page.getByRole('table', { name: 'Azure instance types' });
   await expect(
@@ -1315,7 +1394,7 @@ try {
   await expect(
     azureTypes.getByRole('radio', { name: 'Standard_D4s_v6' }),
   ).toBeEnabled();
-  await expect(page.getByText('Current generation only')).toHaveCount(0);
+  await expect(page.getByText('Current Generation Only')).toHaveCount(0);
   await page.getByRole('button', { name: 'Add tag' }).click();
   await page.getByLabel('Tag 1 key').fill('azure-env');
   await expect(page.getByText('Reserved key')).toBeVisible();
@@ -1324,9 +1403,11 @@ try {
   await page.getByLabel('Tag 1 key').fill('aws:x');
   await expect(page.getByText('Reserved key')).toHaveCount(0);
   await capture('launch-configure');
+  await page.goto(`${base}/launch/vm-request/azure`);
+  await expect(page).toHaveURL(`${base}${vmLaunchPath}/azure`);
   assertNoErrors(errors);
   console.log(
-    'LAUNCH UI PASS: Launch nav, product → platform (vSphere coming soon) → image cards with version → template prefilled with Azure/Ubuntu; Azure sizes, quota-blocked size and advanced rows, Azure tag rules (fixture APIs)',
+    'LAUNCH UI PASS: Compute → Virtual Machines → platform → selectable OS release, prefill, Change and legacy link; Azure sizes, quota and tag rules (fixture APIs)',
   );
   const wording = [
     [
@@ -1459,11 +1540,11 @@ try {
     },
   );
   for (const [route, screenshot] of [
-    ['/', 'home-wording'],
+    [vmProductPath, 'vm-product-wording'],
     ['/catalog', 'resources-wording'],
   ]) {
     await page.goto(`${base}${route}`);
-    // Scope to each VM's row: Home's filter tabs reuse some labels (e.g. Destroying).
+    // Scope to each VM's row: the product's status filters reuse labels such as Destroying.
     for (const [name, , , , , label] of wording)
       await expect(
         page
@@ -1478,7 +1559,7 @@ try {
   listVms = [vm];
   summaryMatrix = undefined;
   console.log(
-    'ROW WORDING PASS: provision, modify, power, destroy, retrying, failed and needs-attention labels; Running/Stopped from the health check; absolute ready/request times on Home and Resources',
+    'ROW WORDING PASS: provision, modify, power, destroy, retrying, failed and needs-attention labels; Running/Stopped from the health check; absolute ready/request times on Virtual Machines and Resources',
   );
   await page.goto(`${base}/`);
   const banner = page.getByText(

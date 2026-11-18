@@ -9,7 +9,7 @@ web
 ## Users
 
 - **Team engineers (primary).** Members of product teams (currently `alpha`, `bravo`) who sign in with a
-  username and password, launch a VM (Launch: product, platform and image cards, then a form), watch it being built, fetch a 12-hour SSH user
+  username and password, launch a VM (Launch → Compute → Virtual Machines → platform → image → form), watch it being built, fetch a 12-hour SSH user
   certificate and connect from their terminal, then manage it from its page: start, stop, reboot,
   modify (size, software install/uninstall, AD join), apply OS updates, re-apply configuration or destroy.
   They see only their own team's VMs.
@@ -20,7 +20,8 @@ web
 
 ## Product Purpose
 
-Compute Factory is an internal developer platform for self-service compute. A user requests a VM and the
+Compute Factory is an internal developer platform for self-service products across infrastructure platforms.
+Virtual Machines is its first Compute product. A user requests a VM and the
 platform builds it the same way every time: golden image (bake) → Terraform provision → Ansible fry stages
 (baseline, software, AD join, access) → ready, with SSH access via CA-signed certificates. Success means a
 user goes from request to a working SSH session without filing a ticket, and can always see where their
@@ -36,19 +37,20 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh <user>@<ip>`, `ubuntu` for Ubuntu, with key + issued cert).
-- Core flows: sign in → home → Launch (product → platform → image cards) → VM form → Launch → live VM run page →
+- Core flows: sign in → Home (grouped resource overview) → Launch (category → product → platform → image release) → VM form → Launch → live VM run page →
   VM entity page (live state, Connect, Activity, Configuration, Details) → open a browser terminal or
   get an SSH certificate, power actions, Modify form, OS updates, re-apply, destroy.
-- Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
+- The Virtual Machines product page shows live VM state and pipelines across clouds. Resources defaults
+  to the `Resource` kind; normal users see only Resource. Search covers the catalog.
 - Active run progress and list summaries update about every 5 seconds; catalog facts refresh about every 10 seconds.
 
 ## Capabilities and Constraints
 
 - Must keep password sign-in, team-scoped catalog, VM status card, standalone live run view,
   templates (request, SSH cert, modify), VM day-2 actions, search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. Launch (top bar,
-  Home and Resources buttons) lists products (templates tagged `product`; today the VM), then platform and
-  image cards; the stock template list at `/create` shows only the VM template; the other templates act on
-  an existing VM and open from the VM page or Home.
+  Home and Resources buttons) lists categories, then products backed by registered templates tagged `product`.
+  VMs continue through platform and image release cards; provision uses the selected release. The stock
+  `/create` list shows only the VM template; other VM templates open from dedicated VM surfaces.
   Running/stopped state comes from the IDP's periodic health check of each cloud, never from desired configuration.
 - Customization only through official Backstage theming, extension overrides, blueprints and frontend
   modules. No forking or patching upstream plugins. Key pages (home, catalog list, VM page, request flow)

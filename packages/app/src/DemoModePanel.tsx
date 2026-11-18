@@ -139,10 +139,10 @@ export function DemoModePanel() {
     }
   }
   return (
-    <section className={classes.root} aria-label="Demo mode">
+    <section className={classes.root} aria-label="Demo Mode">
       <div className={classes.header}>
         <div>
-          <div className={classes.title}>Demo mode · {modeLabel(state)}</div>
+          <div className={classes.title}>Demo Mode · {modeLabel(state)}</div>
           <div className={classes.muted}>
             {state?.enabled
               ? `Your VMs: ${state.ownedCount}/3 · Automatic cleanup 5 minutes after readiness (or terminal failure).`
@@ -151,7 +151,7 @@ export function DemoModePanel() {
         </div>
         {state?.isAdmin && (
           <FormControlLabel
-            label="Enable demo mode"
+            label="Enable Demo Mode"
             control={
               <Switch
                 checked={state.enabled}
@@ -201,7 +201,7 @@ export function DemoModePanel() {
                       {' '}
                       ·{' '}
                       <a href={vm.runUrl} target="_blank" rel="noreferrer">
-                        Cleanup run
+                        Cleanup Run
                       </a>
                     </>
                   )}
@@ -221,7 +221,7 @@ export function DemoModePanel() {
         aria-labelledby="demo-confirm-title"
       >
         <DialogTitle id="demo-confirm-title">
-          {confirm ? 'Enable demo mode?' : 'Disable demo mode?'}
+          {confirm ? 'Enable Demo Mode?' : 'Disable Demo Mode?'}
         </DialogTitle>
         <DialogContent>
           {confirm
@@ -244,7 +244,7 @@ export function DemoModePanel() {
             onClick={toggle}
           >
             {busy && 'Saving…'}
-            {!busy && (confirm ? 'Enable and apply limits' : 'Disable')}
+            {!busy && (confirm ? 'Enable and Apply Limits' : 'Disable')}
           </Button>
         </DialogActions>
       </Dialog>

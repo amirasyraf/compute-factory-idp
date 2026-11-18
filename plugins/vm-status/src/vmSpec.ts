@@ -34,6 +34,10 @@ export function getVmConfiguration(value: unknown) {
     team: text(spec.owner).split('/').pop() ?? '—',
     platform: text(compute.platform),
     os: text(compute.os),
+    imageVersion:
+      typeof compute.imageVersion === 'string'
+        ? compute.imageVersion
+        : undefined,
     size: text(compute.size),
     software: software.join(', ') || 'none',
     adJoin:

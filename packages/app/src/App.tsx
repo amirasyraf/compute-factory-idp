@@ -20,6 +20,7 @@ import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import { navModule } from './modules/nav';
 import { homeModule } from './modules/home';
 import { launchPlugin } from './launch';
+import { productsPlugin } from './products';
 import { CatalogKindFilter } from './CatalogKindFilter';
 import { CatalogPage } from './CatalogPage';
 import { cfLightTheme } from './theme/cfTheme';
@@ -140,6 +141,7 @@ export default createApp({
     scaffolder,
     vmStatus,
     launchPlugin,
+    productsPlugin,
     navModule,
     homeModule,
     createFrontendModule({

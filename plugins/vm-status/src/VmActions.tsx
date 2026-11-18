@@ -253,7 +253,7 @@ export function VmActions({
           onClick={() =>
             open({
               operation: 'update',
-              title: `Apply OS updates to ${name}?`,
+              title: `Apply OS Updates to ${name}?`,
               body: (
                 <p>
                   Installs all available Ubuntu package updates. If an update
@@ -261,12 +261,12 @@ export function VmActions({
                   disconnected.
                 </p>
               ),
-              confirm: 'Apply updates',
+              confirm: 'Apply Updates',
             })
           }
         >
           <ListItemText
-            primary="Apply OS updates"
+            primary="Apply OS Updates"
             secondary={reason ?? needsRunning}
           />
         </MenuItem>
@@ -275,7 +275,7 @@ export function VmActions({
           onClick={() =>
             open({
               operation: 'reapply',
-              title: `Re-apply configuration to ${name}?`,
+              title: `Re-apply Configuration to ${name}?`,
               body: (
                 <p>
                   Runs baseline, software, AD join and access again against the
@@ -288,7 +288,7 @@ export function VmActions({
           }
         >
           <ListItemText
-            primary="Re-apply configuration"
+            primary="Re-apply Configuration"
             secondary={reason ?? needsRunning}
           />
         </MenuItem>

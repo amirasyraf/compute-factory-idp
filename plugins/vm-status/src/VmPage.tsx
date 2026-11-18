@@ -137,7 +137,8 @@ function VmHeader({
   return (
     <header className={classes.header}>
       <nav className={classes.crumb} aria-label="Breadcrumb">
-        <Link to="/catalog">Resources</Link> / Virtual machine
+        <Link to="/catalog">Resources</Link> /{' '}
+        <Link to="/products/compute/virtual-machines">Virtual Machines</Link>
       </nav>
       <div className={classes.titleRow}>
         <h1 className={classes.h1}>
@@ -168,7 +169,8 @@ function VmHeader({
           Team <b>{desired.team}</b>
         </li>
         <li>
-          {osLabel(desired.platform, desired.os, platforms)} on{' '}
+          {osLabel(desired.platform, desired.os, platforms)}
+          {desired.imageVersion ? ` ${desired.imageVersion}` : ''} on{' '}
           {platformLabel(desired.platform, platforms)}
         </li>
         <li>{sizeText}</li>

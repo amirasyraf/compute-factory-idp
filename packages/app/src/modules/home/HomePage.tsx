@@ -1,56 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Entity } from '@backstage/catalog-model';
 import { Link } from '@backstage/core-components';
 import { identityApiRef, useApi } from '@backstage/core-plugin-api';
 import { catalogApiRef } from '@backstage/plugin-catalog-react';
-import { errorMessage, reportClientEvent } from '../../clientLog';
+import { makeStyles } from '@material-ui/core';
 import {
-  PipelineLine,
-  activeStation,
-  VmState,
-  runProcesses,
-  runStations,
-  runVmStatus,
-  useRunSummary,
-  ObservedVm,
-  RunView,
   getVmConfiguration,
-  osLabel,
   platformLabel,
-  sizeBadge,
+  runVmStatus,
   usePlatforms,
-  useVmSizeText,
+  useRunSummary,
   vmColors,
+  vmRunLabel,
   vmState,
   vmStateColor,
-  vmRunLabel,
-  stageLabel,
-  VmActivityTime,
 } from '@internal/plugin-vm-status';
-import { makeStyles } from '@material-ui/core';
-import AddIcon from '@material-ui/icons/Add';
-import VpnKeyOutlined from '@material-ui/icons/VpnKeyOutlined';
-import { DemoModePanel } from '../../DemoModePanel';
-
-// Launch starts at the product cards; the IDP offers more than VMs.
-const LAUNCH = '/launch';
-const SSH_CERT = '/create/templates/default/ssh-cert';
-
-type Filter =
-  | 'all'
-  | 'building'
-  | 'ready'
-  | 'stopped'
-  | 'failed'
-  | 'destroying';
-const FILTERS: { id: Filter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'building', label: 'In progress' },
-  { id: 'ready', label: 'Ready' },
-  { id: 'stopped', label: 'Stopped' },
-  { id: 'failed', label: 'Failed' },
-  { id: 'destroying', label: 'Destroying' },
-];
+import { errorMessage, reportClientEvent } from '../../clientLog';
+import {
+  categories,
+  productOf,
+  productPath,
+  products,
+} from '../../products/catalog';
 
 const useStyles = makeStyles({
   root: {
@@ -59,414 +30,168 @@ const useStyles = makeStyles({
   },
   head: {
     display: 'flex',
-    alignItems: 'flex-end',
+    flexWrap: 'wrap',
+    gap: 16,
     justifyContent: 'space-between',
-    gap: 24,
-    flexWrap: 'wrap',
   },
-  h1: {
-    fontSize: 32,
-    fontWeight: 700,
-    letterSpacing: '-0.025em',
-    lineHeight: 1.1,
-    margin: 0,
-    textWrap: 'balance',
-  } as any,
-  sub: { color: vmColors.mute, fontSize: 14, marginTop: 8 },
-  buttons: { display: 'flex', gap: 10, flexWrap: 'wrap' },
-  btn: {
-    height: 40,
-    padding: '0 16px',
-    borderRadius: 6,
-    border: '1px solid #E3E5E8',
-    background: '#fff',
-    color: vmColors.ink,
-    fontWeight: 600,
-    fontSize: 14,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: 8,
-    textDecoration: 'none',
-    transition: 'border-color 160ms ease-out, background 160ms ease-out',
-    '& svg': { fontSize: 18 },
-    '&:hover': { borderColor: '#C9CDD2', textDecoration: 'none' },
-  },
-  primary: {
+  h1: { fontSize: 32, fontWeight: 700, lineHeight: 1.1, margin: 0 },
+  sub: { color: vmColors.mute, fontSize: 14, margin: '8px 0 0' },
+  launch: {
     background: vmColors.blue,
-    borderColor: vmColors.blue,
     color: '#fff',
-    '&:hover': { background: '#0A4FB0', borderColor: '#0A4FB0' },
-  },
-  strip: {
-    display: 'flex',
-    marginTop: 28,
-    borderTop: `2px solid ${vmColors.ink}`,
-    borderBottom: '1px solid #E3E5E8',
-    flexWrap: 'wrap',
-  },
-  count: {
-    appearance: 'none',
-    border: 0,
-    borderRight: '1px solid #E3E5E8',
-    background: 'transparent',
-    font: 'inherit',
-    color: vmColors.mute,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'baseline',
-    gap: 10,
-    padding: '14px 28px 12px',
-    borderBottomWidth: 3,
-    borderBottomStyle: 'solid',
-    borderBottomColor: 'transparent',
-    marginBottom: -1,
-    whiteSpace: 'nowrap',
-    '&:first-child': { paddingLeft: 0 },
-    '&:last-child': { borderRight: 0 },
-    '& b': {
-      fontSize: 26,
-      fontWeight: 700,
-      letterSpacing: '-0.02em',
-      color: vmColors.ink,
-    },
-    '&:hover': { color: vmColors.ink },
-    '@media (max-width: 760px)': {
-      padding: '10px 14px 8px',
-      gap: 6,
-      '& b': { fontSize: 20 },
-      '&:first-child': { paddingLeft: 0 },
-    },
-  },
-  countOn: {
-    color: vmColors.ink,
+    borderRadius: 6,
+    padding: '10px 16px',
     fontWeight: 600,
-    borderBottomColor: vmColors.blue,
+    alignSelf: 'center',
+    '&:hover': { background: '#0A4FB0', textDecoration: 'none' },
+  },
+  resources: { marginTop: 32 },
+  category: { marginTop: 24 },
+  categoryTitle: { fontSize: 15, color: vmColors.mute, margin: '0 0 10px' },
+  cards: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 400px), 1fr))',
+    gap: 16,
+  },
+  card: { border: '1px solid #E3E5E8', borderRadius: 8, padding: '16px 18px' },
+  cardHead: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  cardTitle: { margin: 0, fontSize: 18, color: vmColors.ink },
+  count: { color: vmColors.mute, fontSize: 13 },
+  list: { padding: 0, margin: '10px 0', listStyle: 'none' },
+  row: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    alignItems: 'baseline',
+    gap: '3px 16px',
+    padding: '10px 0',
+    borderTop: '1px solid #E3E5E8',
+    fontSize: 14,
+    overflowWrap: 'anywhere',
+    '@media (max-width: 550px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
+  },
+  rowFacts: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px 14px',
+    color: vmColors.mute,
+    fontSize: 13,
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: '50%',
     display: 'inline-block',
-    marginRight: 6,
-    verticalAlign: 1,
-  },
-  live: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    alignItems: 'center',
-    gap: 8,
-    color: vmColors.mute,
-    fontSize: 13,
-    margin: '14px 0 10px',
-    '& b': { color: vmColors.ink, fontWeight: 600 },
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
     borderRadius: '50%',
-    background: vmColors.green,
-    boxShadow: '0 0 0 3px rgba(0,147,90,.15)',
+    width: 7,
+    height: 7,
+    marginRight: 5,
   },
-  tableWrap: { overflowX: 'auto' },
-  table: {
-    width: '100%',
-    minWidth: 1080,
-    borderCollapse: 'collapse',
-    '& th': {
-      textAlign: 'left',
-      fontSize: 11,
-      fontWeight: 600,
-      letterSpacing: '0.07em',
-      textTransform: 'uppercase',
-      color: vmColors.mute,
-      padding: '9px 12px',
-      borderBottom: '1px solid #E3E5E8',
-      background: '#F3F4F5',
-    },
-    '& td': {
-      padding: '18px 12px',
-      borderBottom: '1px solid #E3E5E8',
-      verticalAlign: 'middle',
-    },
-    // Narrow screens: each VM becomes a stacked block, the line spans the width.
-    '@media (max-width: 1000px)': {
-      minWidth: 0,
-      '& thead': { display: 'none' },
-      '& tbody, & tr, & td': { display: 'block', width: '100%' },
-      '& tr': { padding: '16px 0', borderBottom: '1px solid #E3E5E8' },
-      '& td': { padding: '6px 12px', borderBottom: 0 },
-      '& td:empty': { display: 'none' },
-    },
-  },
-  failRow: {
-    background: '#FEF6F5',
-    '& td': { background: '#FEF6F5' },
-  },
-  vm: { display: 'flex', alignItems: 'center', gap: 14 },
-  bullet: {
-    width: 34,
-    height: 34,
-    borderRadius: '50%',
-    color: '#fff',
-    fontWeight: 800,
-    fontSize: 15,
-    display: 'grid',
-    placeItems: 'center',
-    flex: 'none',
-  },
-  name: {
-    whiteSpace: 'nowrap',
-    fontSize: 15,
-    fontWeight: 600,
-    color: vmColors.ink,
-    textDecoration: 'none',
-    '&:hover': { color: vmColors.blue, textDecoration: 'underline' },
-  },
-  state: {
-    fontSize: 12.5,
-    fontWeight: 600,
-    marginTop: 2,
-    whiteSpace: 'nowrap',
-  },
-  line: {
-    width: 520,
-    '@media (max-width: 1000px)': { width: '100%' },
-  },
-  meta: { fontSize: 13, color: vmColors.mute, '& div + div': { marginTop: 3 } },
-  mono: {
-    fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
-    fontSize: 12.5,
-    color: vmColors.ink,
-  },
-  chip: {
-    display: 'inline-block',
-    fontSize: 11.5,
-    fontWeight: 500,
-    background: '#F3F4F5',
-    borderRadius: 4,
-    padding: '1px 7px',
-    color: vmColors.ink,
-    marginRight: 4,
-  },
-  when: { fontSize: 12.5, color: vmColors.mute, minWidth: 150 },
-  act: {
-    textAlign: 'right',
-    whiteSpace: 'nowrap',
-    '@media (max-width: 1000px)': { textAlign: 'left', paddingTop: 10 },
-  },
-  small: {
-    height: 34,
-    padding: '0 12px',
-    fontSize: 13,
-  },
-  danger: {
-    background: vmColors.red,
-    borderColor: vmColors.red,
-    color: '#fff',
-    '&:hover': { background: vmColors.redText, borderColor: vmColors.redText },
-  },
-  empty: {
-    padding: '56px 0',
-    textAlign: 'center',
-    color: vmColors.mute,
-    '& h2': {
-      color: vmColors.ink,
-      fontSize: 18,
-      fontWeight: 700,
-      margin: '0 0 6px',
-    },
-    '& p': { margin: '0 0 20px' },
-  },
-  error: { color: vmColors.redText, fontSize: 14, padding: '24px 0' },
+  footer: { fontSize: 14, fontWeight: 600 },
 });
 
-function greeting(now: Date) {
-  const h = now.getHours();
-  if (h < 12) return 'Good morning';
-  if (h < 18) return 'Good afternoon';
-  return 'Good evening';
+const displayName = (entity: Entity) =>
+  entity.metadata.title ?? entity.metadata.name;
+function currentGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good Morning';
+  if (hour < 18) return 'Good Afternoon';
+  return 'Good Evening';
 }
 
-function teamsLabel(refs: string[]) {
-  const teams = refs
-    .filter(ref => ref.startsWith('group:'))
-    .map(ref => ref.split('/').pop()!)
-    .filter(team => team !== 'platform-admins');
-  if (!teams.length) return undefined;
-  const names = teams.map(t => t[0].toUpperCase() + t.slice(1));
-  return `Team ${names.join(', ')}`;
-}
+const entityPath = ({ metadata }: Entity) =>
+  `/catalog/${encodeURIComponent(
+    metadata.namespace ?? 'default',
+  )}/resource/${encodeURIComponent(metadata.name)}`;
 
-type Row = {
-  entity: Entity;
-  state: VmState;
-  run?: RunView;
-  /** Health check: undefined = not known, null = no instance found in the VM's cloud. */
-  observed?: ObservedVm | null;
-};
-
-function VmRow({ entity, state, run, observed }: Row) {
+function VmRows({ entities }: { entities: Entity[] }) {
   const classes = useStyles();
-  const annotations = entity.metadata.annotations ?? {};
-  const processes = runProcesses(run);
-  const stations = runStations(run);
-  const desired = getVmConfiguration(entity.spec);
-  const sizeText = useVmSizeText(entity);
-  const color = vmStateColor(state);
-  const ip =
-    observed === undefined ? annotations['cf/public-ip'] : observed?.publicIp;
-  // Every VM's inventory records its login user; the fallback covers only older entries.
-  const user = annotations['cf/ssh-user'] || 'ubuntu';
-  const runUrl = run ? `/vms/runs/${run.id}` : undefined;
-  const namespace = entity.metadata.namespace ?? 'default';
-  const name = entity.metadata.name;
-  const active = activeStation(processes, stations);
-  const failedStage = run?.stages.find(
-    stage => stage.status === 'failed' && stage.id !== 'finalize',
-  );
   const platforms = usePlatforms();
-  const os = `${osLabel(
-    desired.platform,
-    desired.os,
-    platforms,
-  )} on ${platformLabel(desired.platform, platforms)}`;
-
-  let action = null;
-  if (state === 'ready') {
-    action = (
-      <Link to={SSH_CERT} className={`${classes.btn} ${classes.small}`}>
-        Get SSH certificate
-      </Link>
-    );
-  } else if (runUrl && (state === 'failed' || state === 'building')) {
-    action = (
-      <a
-        href={runUrl}
-        target="_blank"
-        rel="noreferrer"
-        className={`${classes.btn} ${classes.small} ${
-          state === 'failed' ? classes.danger : ''
-        }`}
-      >
-        View run
-      </a>
-    );
-  }
-
+  const { runs, observed, error } = useRunSummary();
   return (
-    <tr className={state === 'failed' ? classes.failRow : undefined}>
-      <td>
-        <div className={classes.vm}>
-          <span
-            className={classes.bullet}
-            style={{ background: color }}
-            title={sizeText}
-          >
-            {sizeBadge(entity)}
-          </span>
-          <div>
-            <Link
-              to={`/catalog/${namespace}/resource/${name}`}
-              className={classes.name}
-              style={state === 'destroying' ? { color: vmColors.mute } : {}}
-            >
-              {entity.metadata.title ?? name}
-            </Link>
-            <div
-              className={classes.state}
-              style={{
-                color: state === 'failed' ? vmColors.redText : color,
-              }}
-            >
-              <i className={classes.dot} style={{ background: color }} />
-              {vmRunLabel(run, annotations['cf/status'], observed)}
-            </div>
-          </div>
-        </div>
-      </td>
-      <td>
-        <div className={classes.line}>
-          {run ? (
-            <PipelineLine
-              processes={processes}
-              stations={stations}
-              retired={state === 'destroying'}
-            />
-          ) : (
-            <span>No run known</span>
-          )}
-        </div>
-      </td>
-      <td className={classes.meta}>
-        {state === 'ready' && ip ? (
-          <div>
-            {os} ·{' '}
-            <span className={classes.mono}>
-              ssh {user}@{ip}
-            </span>
-          </div>
-        ) : (
-          <div>
-            {os} · {sizeText}
-          </div>
-        )}
-        {active &&
-          !failedStage &&
-          (state === 'building' || state === 'failed') && (
-            <div
-              style={
-                active.status === 'failed'
-                  ? { color: vmColors.redText, fontWeight: 600 }
-                  : { color: vmColors.ink }
-              }
-            >
-              Stage {active.index + 1} of {stations.length}
-            </div>
-          )}
-        {failedStage && (
-          <div style={{ color: vmColors.redText, fontWeight: 600 }}>
-            {stageLabel(failedStage.id)} stage failed
-          </div>
-        )}
-        {desired.software !== 'none' && (
-          <div>
-            {desired.software.split(', ').map(s => (
-              <span key={s} className={classes.chip}>
-                {s}
+    <>
+      {error && (
+        <p className={classes.sub}>
+          Live VM status unavailable. Showing catalog status.
+        </p>
+      )}
+      <ul className={classes.list}>
+        {entities.map(entity => {
+          const { name } = entity.metadata;
+          const status = entity.metadata.annotations?.['cf/status'];
+          const state = vmState(
+            runVmStatus(runs[name], status, observed[name]),
+          );
+          return (
+            <li key={entityPath(entity)} className={classes.row}>
+              <Link to={entityPath(entity)}>{displayName(entity)}</Link>
+              <span className={classes.rowFacts}>
+                <span>
+                  {platformLabel(
+                    getVmConfiguration(entity.spec).platform,
+                    platforms,
+                  )}
+                </span>
+                <span>
+                  <i
+                    aria-hidden="true"
+                    className={classes.dot}
+                    style={{ backgroundColor: vmStateColor(state) }}
+                  />
+                  {vmRunLabel(runs[name], status, observed[name])}
+                </span>
               </span>
-            ))}
-          </div>
-        )}
-      </td>
-      <td className={classes.when}>
-        <VmActivityTime annotations={annotations} />
-      </td>
-      <td className={classes.act}>{action}</td>
-    </tr>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
+}
+
+function ResourceRows({ entities }: { entities: Entity[] }) {
+  const classes = useStyles();
+  return (
+    <ul className={classes.list}>
+      {entities.map(entity => (
+        <li key={entityPath(entity)} className={classes.row}>
+          <Link to={entityPath(entity)}>{displayName(entity)}</Link>
+          {typeof entity.spec?.type === 'string' && (
+            <span className={classes.rowFacts}>{entity.spec.type}</span>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
 
 export function HomePage() {
   const classes = useStyles();
-  const { runs, observed, error: summaryError } = useRunSummary();
   const catalog = useApi(catalogApiRef);
   const identity = useApi(identityApiRef);
-  const [vms, setVms] = useState<Entity[]>();
+  const [resources, setResources] = useState<Entity[]>();
   const [error, setError] = useState<string>();
-  const [refreshed, setRefreshed] = useState<Date>();
-  const [now, setNow] = useState(() => new Date());
-  const [filter, setFilter] = useState<Filter>('all');
-  const [who, setWho] = useState<{ name?: string; team?: string }>({});
+  const [name, setName] = useState<string>();
+  const [teams, setTeams] = useState<string[]>([]);
 
   useEffect(() => {
-    let mounted = true;
+    let active = true;
     Promise.all([identity.getProfileInfo(), identity.getBackstageIdentity()])
       .then(([profile, user]) => {
-        if (!mounted) return;
-        setWho({
-          name: profile.displayName ?? user.userEntityRef.split('/').pop(),
-          team: teamsLabel(user.ownershipEntityRefs),
-        });
+        if (!active) return;
+        setName(profile.displayName ?? user.userEntityRef.split('/').pop());
+        setTeams(
+          user.ownershipEntityRefs
+            .filter(
+              ref =>
+                ref.startsWith('group:default/') &&
+                ref !== 'group:default/platform-admins',
+            )
+            .map(ref => ref.slice('group:default/'.length))
+            .map(team => team.charAt(0).toUpperCase() + team.slice(1)),
+        );
       })
       .catch(e =>
         reportClientEvent({
@@ -476,240 +201,126 @@ export function HomePage() {
         }),
       );
     return () => {
-      mounted = false;
+      active = false;
     };
   }, [identity]);
 
   useEffect(() => {
-    let disposed = false;
-    let fetching = false;
+    let active = true;
+    let loading = false;
     const load = async () => {
-      if (fetching) return;
-      fetching = true;
+      if (loading) return;
+      loading = true;
       try {
-        const res = await catalog.getEntities({
-          filter: { kind: 'resource', 'spec.type': 'vm' },
+        const result = await catalog.getEntities({
+          filter: { kind: 'Resource' },
         });
-        if (disposed) return;
-        setVms(res.items);
-        setError(undefined);
-        setRefreshed(new Date());
-      } catch (e) {
-        if (!disposed)
-          setError(
-            `Could not load your team's machines: ${
-              (e as Error).message
-            }. Retrying every 10 seconds.`,
+        if (active) {
+          setResources(
+            [...result.items].sort((a, b) =>
+              displayName(a).localeCompare(displayName(b)),
+            ),
           );
+          setError(undefined);
+        }
+      } catch (e) {
+        if (active) setError(errorMessage(e));
       } finally {
-        fetching = false;
-        if (!disposed) setNow(new Date());
+        loading = false;
       }
     };
     load();
     const timer = window.setInterval(load, 10000);
     return () => {
-      disposed = true;
+      active = false;
       window.clearInterval(timer);
     };
   }, [catalog]);
 
-  const rows: Row[] = useMemo(() => {
-    const rank: Record<VmState, number> = {
-      failed: 0,
-      building: 1,
-      ready: 2,
-      stopped: 3,
-      other: 4,
-      destroying: 5,
-    };
-    return (vms ?? [])
-      .map(entity => {
-        const name = entity.metadata.name;
-        const seen = name in observed ? observed[name] : undefined;
-        return {
-          entity,
-          run: runs[name],
-          observed: seen,
-          state: vmState(
-            runVmStatus(
-              runs[name],
-              entity.metadata.annotations?.['cf/status'],
-              seen,
-            ),
-          ),
-        };
-      })
-      .sort(
-        (a, b) =>
-          rank[a.state] - rank[b.state] ||
-          a.entity.metadata.name.localeCompare(b.entity.metadata.name),
-      );
-  }, [vms, runs, observed]);
-
-  const counts = useMemo(() => {
-    const c: Record<Filter, number> = {
-      all: rows.length,
-      building: 0,
-      ready: 0,
-      stopped: 0,
-      failed: 0,
-      destroying: 0,
-    };
-    rows.forEach(r => {
-      if (r.state in c) c[r.state as Filter] += 1;
-    });
-    return c;
-  }, [rows]);
-
-  const shown = filter === 'all' ? rows : rows.filter(r => r.state === filter);
-  const dotColor: Record<Filter, string | undefined> = {
-    all: undefined,
-    building: vmColors.blue,
-    ready: vmColors.green,
-    stopped: vmColors.grey,
-    failed: vmColors.red,
-    destroying: vmColors.grey,
-  };
-
+  const other = resources?.filter(entity => !productOf(entity)) ?? [];
+  const resourceCount = (count: number) =>
+    `${count} ${count === 1 ? 'resource' : 'resources'}`;
   return (
-    <div className={classes.root}>
-      <div className={classes.head}>
+    <main className={classes.root}>
+      <header className={classes.head}>
         <div>
           <h1 className={classes.h1}>
-            {greeting(now)}
-            {who.name ? `, ${who.name}` : ''}
+            {currentGreeting()}
+            {name && `, ${name}`}
           </h1>
-          <div className={classes.sub}>
-            {[
-              who.team,
-              vms
-                ? `${rows.length} virtual machine${
-                    rows.length === 1 ? '' : 's'
-                  }`
-                : undefined,
-            ]
-              .filter(Boolean)
-              .join(' · ') || '\u00a0'}
+          {!!teams.length && (
+            <p className={classes.sub}>Team {teams.join(', ')}</p>
+          )}
+        </div>
+        <Link to="/launch" className={classes.launch}>
+          Launch a Product
+        </Link>
+      </header>
+      <section className={classes.resources} aria-labelledby="your-resources">
+        <div className={classes.cardHead}>
+          <div>
+            <h2 id="your-resources" className={classes.cardTitle}>
+              Your Resources
+            </h2>
+            <p className={classes.sub}>
+              See the resources you can access across products and platforms.
+            </p>
           </div>
+          <Link to="/catalog">Browse All Resources</Link>
         </div>
-        <div className={classes.buttons}>
-          <Link to={SSH_CERT} className={classes.btn}>
-            <VpnKeyOutlined />
-            Get SSH certificate
-          </Link>
-          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
-            <AddIcon />
-            Launch
-          </Link>
-        </div>
-      </div>
-
-      <DemoModePanel />
-
-      <div className={classes.strip} role="tablist" aria-label="Filter VMs">
-        {FILTERS.map(f => (
-          <button
-            key={f.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === f.id}
-            className={`${classes.count} ${
-              filter === f.id ? classes.countOn : ''
-            }`}
-            onClick={() => setFilter(f.id)}
-          >
-            <b>{vms ? counts[f.id] : '–'}</b>
-            <span>
-              {dotColor[f.id] && (
-                <i
-                  className={classes.dot}
-                  style={{ background: dotColor[f.id] }}
-                />
-              )}
-              {f.label}
-            </span>
-          </button>
-        ))}
-      </div>
-
-      <div className={classes.live} aria-live="polite">
-        <span className={classes.liveDot} />
-        Updates about every 10 seconds
-        {refreshed && (
-          <>
-            {' · last refreshed '}
-            <b>{refreshed.toLocaleTimeString()}</b>
-          </>
+        {error && <p role="alert">Could not load resources: {error}</p>}
+        {!resources && !error && <p role="status">Loading resources…</p>}
+        {resources &&
+          categories.map(category => (
+            <section key={category.id} className={classes.category}>
+              <h3 className={classes.categoryTitle}>{category.title}</h3>
+              <div className={classes.cards}>
+                {products
+                  .filter(product => product.category === category.id)
+                  .map(product => {
+                    const entities = resources.filter(
+                      entity => productOf(entity) === product,
+                    );
+                    const Rows =
+                      product.resourceType === 'vm' ? VmRows : ResourceRows;
+                    return (
+                      <article key={product.id} className={classes.card}>
+                        <div className={classes.cardHead}>
+                          <h4 className={classes.cardTitle}>
+                            <Link to={productPath(product)}>
+                              {product.title}
+                            </Link>
+                          </h4>
+                          <span className={classes.count}>
+                            {resourceCount(entities.length)}
+                          </span>
+                        </div>
+                        {entities.length > 0 ? (
+                          <Rows entities={entities} />
+                        ) : (
+                          <p className={classes.sub}>
+                            No resources in this product yet.
+                          </p>
+                        )}
+                        <p className={classes.footer}>
+                          <Link to={productPath(product)}>
+                            View All {product.title}
+                          </Link>
+                        </p>
+                      </article>
+                    );
+                  })}
+              </div>
+            </section>
+          ))}
+        {other.length > 0 && (
+          <section className={`${classes.category} ${classes.card}`}>
+            <h3 className={classes.cardTitle}>Other Resources</h3>
+            <ResourceRows entities={other} />
+            <Link to="/catalog">View All Resources</Link>
+          </section>
         )}
-      </div>
-
-      {error && <div className={classes.error}>{error}</div>}
-      {summaryError && (
-        <div role="alert" className={classes.error}>
-          Run summary unavailable: {summaryError}. Showing catalog status.
-        </div>
-      )}
-
-      {!vms && !error && (
-        <div className={classes.empty}>Loading your team's machines…</div>
-      )}
-
-      {vms && rows.length === 0 && (
-        <div className={classes.empty}>
-          <h2>No virtual machines yet</h2>
-          <p>
-            Launch one and follow its pipeline from ServiceNow request to
-            Finalize.
-          </p>
-          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
-            <AddIcon />
-            Launch
-          </Link>
-        </div>
-      )}
-
-      {vms && rows.length > 0 && shown.length === 0 && (
-        <div className={classes.empty}>
-          <h2>Nothing here right now</h2>
-          <p>No machines match this filter.</p>
-          <button
-            type="button"
-            className={classes.btn}
-            onClick={() => setFilter('all')}
-          >
-            Show all machines
-          </button>
-        </div>
-      )}
-
-      {shown.length > 0 && (
-        <div className={classes.tableWrap}>
-          <table className={classes.table}>
-            <thead>
-              <tr>
-                <th style={{ width: 260 }}>Machine</th>
-                <th style={{ width: 560 }}>Pipeline · baked image, then fry</th>
-                <th>Details</th>
-                <th style={{ width: 180 }}>Activity time</th>
-                <th style={{ width: 170 }}>
-                  <span style={{ position: 'absolute', left: -9999 }}>
-                    Next action
-                  </span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map(row => (
-                <VmRow
-                  key={row.entity.metadata.uid ?? row.entity.metadata.name}
-                  {...row}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
+      </section>
+    </main>
   );
 }

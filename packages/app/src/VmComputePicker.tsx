@@ -45,21 +45,23 @@ import {
   usePlatforms,
   useVmSizes,
 } from '@internal/plugin-vm-status';
+import { launchPath, virtualMachines } from './products/catalog';
 
 type Compute = {
   platform?: string;
   os?: string;
+  imageVersion?: string;
   size?: string;
   instanceType?: string;
 };
 type SortKey = 'type' | 'vcpus' | 'memory';
 
 const sizeNames: Record<string, string> = {
-  XS: 'Extra small',
+  XS: 'Extra Small',
   S: 'Small',
   M: 'Medium',
   L: 'Large',
-  XL: 'Extra large',
+  XL: 'Extra Large',
 };
 const categoryOrder = [
   'General purpose',
@@ -509,7 +511,7 @@ function InstanceTypePicker({
           select
           size="small"
           variant="outlined"
-          label="Min memory"
+          label="Min Memory"
           value={minMemory}
           onChange={event => setMinMemory(Number(event.target.value))}
           style={{ minWidth: 120 }}
@@ -530,7 +532,7 @@ function InstanceTypePicker({
                 onChange={event => setCurrentOnly(event.target.checked)}
               />
             }
-            label="Current generation only"
+            label="Current Generation Only"
           />
         )}
         {(restriction?.enabled ||
@@ -543,7 +545,7 @@ function InstanceTypePicker({
                 onChange={event => setAllowedOnly(event.target.checked)}
               />
             }
-            label="Hide types I cannot launch now"
+            label="Hide Unavailable Types"
           />
         )}
       </div>
@@ -558,7 +560,7 @@ function InstanceTypePicker({
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox" />
-              {header('type', 'Instance type')}
+              {header('type', 'Instance Type')}
               {header('vcpus', 'vCPU', true)}
               {header('memory', 'Memory', true)}
               <TableCell>Network</TableCell>
@@ -612,32 +614,56 @@ function VmComputePickerField({
   const properties = (schema.properties ?? {}) as Record<string, unknown>;
   const sizeOptions = enumOf(properties.size);
   const value: Compute = formData ?? {};
-  const base = {
-    platform: value.platform ?? enumOf(properties.platform)[0],
-    os: value.os ?? enumOf(properties.os)[0],
-  };
   const platforms = usePlatforms();
+  const platform = value.platform ?? enumOf(properties.platform)[0];
+  const os = value.os ?? enumOf(properties.os)[0];
+  const locked = Boolean(
+    (uiSchema?.['ui:options'] as { locked?: boolean } | undefined)?.locked,
+  );
+  const versions = platforms
+    ?.find(item => item.id === platform)
+    ?.os.find(item => item.id === os)?.versions;
+  // A direct template link has no launch prefill. Infer a release only for an unambiguous OS.
+  const imageVersion =
+    value.imageVersion ??
+    (!locked && properties.imageVersion && versions?.length === 1
+      ? versions[0]
+      : undefined);
+  const base = {
+    platform,
+    os,
+    ...(imageVersion ? { imageVersion } : {}),
+  };
   const sizes = useVmSizes(base.platform);
   const restriction = useDemoRestriction();
   const [advanced, setAdvanced] = useState(Boolean(value.instanceType));
   const cloud = platformLabel(base.platform, platforms);
-  const locked = Boolean(
-    (uiSchema?.['ui:options'] as { locked?: boolean } | undefined)?.locked,
-  );
 
   useEffect(() => {
-    if (!formData?.size && !formData?.instanceType) {
+    if (formData?.size || formData?.instanceType) {
+      if (imageVersion && !formData.imageVersion)
+        onChange({ ...formData, ...base });
+    } else {
       const initial = sizeOptions.includes('S') ? 'S' : sizeOptions[0];
       if (initial) onChange({ ...base, size: initial });
     }
-    // Only fills an empty selection; base/onChange identity changes are irrelevant.
+    // Only fills empty selections; base/onChange identity changes are irrelevant.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData?.size, formData?.instanceType]);
+  }, [
+    formData?.size,
+    formData?.instanceType,
+    formData?.imageVersion,
+    imageVersion,
+  ]);
 
   const custom = value.instanceType;
   const customBlocked = custom && !allowedType(custom, restriction);
   const label = (name: string, fallback: string) =>
     (properties[name] as { title?: string } | undefined)?.title ?? fallback;
+  const imageQuery =
+    imageVersion && os
+      ? `?${new URLSearchParams({ image: `${os}:${imageVersion}` })}`
+      : '';
 
   return (
     <Box my={2}>
@@ -648,18 +674,31 @@ function VmComputePickerField({
         </div>
         <div>
           <small>Image</small>
-          <b>{osLabel(base.platform, base.os, platforms)}</b>
+          <b>
+            {osLabel(platform, os, platforms)}
+            {imageVersion ? ` ${imageVersion}` : ''}
+          </b>
         </div>
         {!locked && (
           <Link
             component={RouterLink}
-            to={`/launch/vm-request/${encodeURIComponent(base.platform ?? '')}`}
+            to={`${launchPath(virtualMachines)}${
+              platform ? `/${encodeURIComponent(platform)}${imageQuery}` : ''
+            }`}
             style={{ marginLeft: 'auto' }}
           >
             Change
           </Link>
         )}
       </Paper>
+      {!locked &&
+        Boolean(properties.imageVersion) &&
+        !imageVersion &&
+        platforms && (
+          <FormHelperText>
+            Use Change to choose an image version.
+          </FormHelperText>
+        )}
       <Typography variant="subtitle1">
         <b>{label('size', 'Size')}</b>
       </Typography>
@@ -690,7 +729,7 @@ function VmComputePickerField({
               })
             }
           >
-            Use a size instead
+            Use a Size Instead
           </Button>
           {customBlocked && (
             <FormHelperText error>
@@ -707,7 +746,7 @@ function VmComputePickerField({
         endIcon={advanced ? <ExpandLess /> : <ExpandMore />}
         aria-expanded={advanced}
       >
-        Advanced: choose a specific {cloud} instance type
+        Advanced: Choose a Specific {cloud} Instance Type
       </Button>
       <Collapse in={advanced} unmountOnExit>
         <InstanceTypePicker

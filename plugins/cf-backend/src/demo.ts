@@ -3,7 +3,7 @@ import { DatabaseService, LoggerService } from '@backstage/backend-plugin-api';
 import YAML from 'yaml';
 import { github, mapConcurrent, message } from './github';
 import { Orchestrator, Run, RunConflict } from './orchestrator';
-import { PLATFORMS, loadSizes } from './platforms';
+import { PLATFORMS, imageVersions, loadPlatform, loadSizes } from './platforms';
 
 const limit = 3;
 const lifetime = 5 * 60 * 1000;
@@ -490,6 +490,32 @@ export function createDemo(options: {
     }
     if (await db<Vm>('demo_vms').where({ name }).first())
       return { status: 409, body: { error: 'VM name already reserved' } };
+    const { platform, os, imageVersion } = spec.compute ?? {};
+    if (!PLATFORMS.includes(platform) || typeof os !== 'string')
+      return {
+        status: 400,
+        body: { error: 'Choose a supported VM platform and image' },
+      };
+    let versions: string[];
+    try {
+      versions = imageVersions(await loadPlatform(platform, logger), os);
+    } catch (error) {
+      return {
+        status: 503,
+        body: { error: `Image catalog unavailable: ${message(error)}` },
+      };
+    }
+    // Old, already open request forms omitted the release. Only infer it if unambiguous.
+    const version =
+      imageVersion === undefined && versions.length === 1
+        ? versions[0]
+        : imageVersion;
+    if (!versions.includes(version))
+      return {
+        status: 400,
+        body: { error: 'Choose an image version offered on this platform' },
+      };
+    spec.compute.imageVersion = version;
     const mode = await getMode();
     const refusal = await refuseInstanceType(spec.compute?.instanceType);
     if (refusal) return refusal;

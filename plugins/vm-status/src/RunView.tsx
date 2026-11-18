@@ -392,7 +392,7 @@ function StageRow({ stage, now }: { stage: StageView; now: number }) {
               {!!stage.attempts.length && (
                 <>
                   <h4 className={classes.detailHeading}>
-                    Earlier attempts ({stage.attempts.length})
+                    Earlier Attempts ({stage.attempts.length})
                   </h4>
                   <ol className={classes.earlier}>
                     {stage.attempts.map((attempt, index) => (
@@ -644,12 +644,12 @@ export function VmRunView({
       {compact ? (
         <div className={classes.compactFooter}>
           {(run.actions.retry || run.actions.skip) && actions}
-          <Link to={`/vms/runs/${run.id}`}>View run details →</Link>
+          <Link to={`/vms/runs/${run.id}`}>View Run Details →</Link>
         </div>
       ) : (
         <>
           {(run.actions.retry || run.actions.skip) && actions}
-          <InfoCard title="Pipeline stages">
+          <InfoCard title="Pipeline Stages">
             {line}
             <ol className={classes.stages} aria-label="Run stages">
               {run.stages.map(stage => (
@@ -676,7 +676,7 @@ export function VmRunView({
             disabled={!!pending || !run.actions.skip}
             onClick={() => act('skip')}
           >
-            Skip stage
+            Skip Stage
           </Button>
         </DialogActions>
       </Dialog>
@@ -714,7 +714,7 @@ function RunPage() {
           <div role="alert">
             {error}{' '}
             <Button onClick={() => setReload(value => value + 1)}>
-              Try again
+              Try Again
             </Button>
           </div>
         )}

@@ -20,6 +20,7 @@ import {
   allowsInstanceType,
   loadPlatform,
   platformLabel,
+  validImageVersion,
   validPlatform,
 } from './platforms';
 import { TerminalLimit, createTerminals } from './terminal';
@@ -52,12 +53,16 @@ const record = (value: unknown): Record<string, any> =>
  */
 function parseCompute(value: unknown) {
   const compute = record(value);
-  const { platform, os, size, instanceType } = compute;
+  const { platform, os, imageVersion, size, instanceType } = compute;
   if (
     !validPlatform(platform) ||
     typeof os !== 'string' ||
+    (imageVersion !== undefined && !validImageVersion(imageVersion)) ||
     Object.keys(compute).some(
-      key => !['platform', 'os', 'size', 'instanceType'].includes(key),
+      key =>
+        !['platform', 'os', 'imageVersion', 'size', 'instanceType'].includes(
+          key,
+        ),
     ) ||
     (size === undefined) === (instanceType === undefined) ||
     (size !== undefined &&
@@ -67,9 +72,7 @@ function parseCompute(value: unknown) {
         !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(instanceType)))
   )
     return undefined;
-  return size !== undefined
-    ? { platform, os, size: size as string }
-    : { platform, os, instanceType: instanceType as string };
+  return { platform, os, imageVersion, size, instanceType };
 }
 
 /** The VM entity's `spec.compute.platform`; inventory predating Azure is AWS. */
@@ -341,10 +344,11 @@ export const vmsPlugin = createBackendPlugin({
               const current = record(spec.compute);
               if (
                 current.platform !== compute.platform ||
-                current.os !== compute.os
+                current.os !== compute.os ||
+                current.imageVersion !== compute.imageVersion
               ) {
                 res.status(400).json({
-                  error: 'Modify cannot change the platform or OS',
+                  error: 'Modify cannot change the platform or image',
                 });
                 return;
               }

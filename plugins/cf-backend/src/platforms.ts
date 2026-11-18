@@ -13,7 +13,13 @@ export type Platform = {
   label: string;
   os: Record<
     string,
-    { label?: string; versions?: string[]; sshUser?: string; family?: string }
+    {
+      label?: string;
+      versions?: string[];
+      galleryImages?: Record<string, string>;
+      sshUser?: string;
+      family?: string;
+    }
   >;
   instanceTypePattern: RegExp;
   excludedInstanceTypePattern: RegExp | null;
@@ -25,6 +31,32 @@ export type Platform = {
 
 export const validPlatform = (id: unknown): id is string =>
   typeof id === 'string' && /^[a-z][a-z0-9-]{1,20}$/.test(id);
+
+export const validImageVersion = (version: unknown): version is string =>
+  typeof version === 'string' &&
+  /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(version);
+
+export function imageVersions(platform: Platform, os: string): string[] {
+  const image = Object.prototype.hasOwnProperty.call(platform.os, os)
+    ? platform.os[os]
+    : undefined;
+  const versions = Array.isArray(image?.versions)
+    ? [...new Set(image.versions.filter(validImageVersion))]
+    : [];
+  if (platform.id !== 'azure') return versions;
+  const galleryImages = image?.galleryImages ?? {};
+  return versions.filter(version => {
+    const name = galleryImages[version];
+    return (
+      typeof name === 'string' &&
+      !!name &&
+      Object.values(galleryImages).filter(
+        item =>
+          typeof item === 'string' && item.toLowerCase() === name.toLowerCase(),
+      ).length === 1
+    );
+  });
+}
 
 /** Only when platform.json cannot be read. */
 export const fallbackLabel = (id: string) =>

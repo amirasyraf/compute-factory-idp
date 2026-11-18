@@ -176,13 +176,18 @@ function TopBar({ navItems }: NavContentComponentProps) {
   const { state, toggleModal } = useSearchModal();
 
   const isOn = (href: string) =>
-    href === '/' ? pathname === '/' : pathname.startsWith(href);
+    href === '/'
+      ? pathname === '/'
+      : pathname === href ||
+        pathname.startsWith(`${href}/`) ||
+        (href === '/catalog' && pathname.startsWith('/products/'));
 
   // Home is the brand link's destination as well as the first tab.
   navItems.take('page:home');
   navItems.take('page:user-settings');
   // Launch replaces the template list in the bar; /create still serves every template.
   navItems.take('page:scaffolder');
+  navItems.take('page:products/virtual-machines');
   const primary = ['page:catalog', 'page:launch', 'page:search']
     .map(id => ({ id, item: navItems.take(id) }))
     .filter(({ item }) => item);
@@ -234,7 +239,7 @@ function TopBar({ navItems }: NavContentComponentProps) {
           aria-label="Search the catalog"
         >
           <SearchIcon />
-          <span>Search VMs, teams, templates</span>
+          <span>Search resources, teams, templates</span>
         </button>
         <RouterLink
           to="/settings"

@@ -94,7 +94,8 @@ surfaces remain visible and do not all use the transit-line grammar.
 
 **Key Characteristics:**
 
-- A shared run-specific stage line on home, Resources, VM and run pages.
+- A shared run-specific stage line on the Virtual Machines product page, VM-only Resources lists,
+  VM detail and run pages.
 - Dense, legible operational information with explicit state text and next actions.
 - Flat white surfaces, light dividers, restrained rounding and state-bearing colour.
 - Light-only, applied through supported Backstage extensions and unified theming.
@@ -120,13 +121,13 @@ palette; `cf` and `vmColors` currently duplicate several values in code.
 
 ### Semantic
 
-- **Ready green (`green`)**: ready VM bullets/state markers and the home refresh
+- **Ready green (`green`)**: ready VM bullets/state markers and the VM product page's refresh
   indicator. Completed pipeline stations stay blue, not green. Workflow task job
   success text separately uses the theme success green.
-- **Failure red (`red`)**: failed VM bullets, crossed failure station and home's
-  filled failed-row View run action.
+- **Failure red (`red`)**: failed VM bullets, crossed failure station and the product page's
+  filled failed-row View Run action.
 - **Failure text (`redText`)**: failed station labels, error/status copy and the
-  outlined Destroy VM action; also the hover of home's filled red action.
+  outlined Destroy VM action; also the hover of the product page's filled red action.
 - **Retirement grey (`grey`)**: destroying and other/unknown VM markers.
 - **Warning amber (`warning`)**: theme warning role, not a sixth VM state.
 
@@ -143,7 +144,7 @@ palette; `cf` and `vmColors` currently duplicate several values in code.
 - **Untravelled track (`track`)**, **station border (`station-border`)** and
   **retired label (`retired-label`)** distinguish waiting geometry and retired
   lines. Station-border grey is also used for several control hover borders.
-- **Failure wash (`failed-row`)**: home failed rows only.
+- **Failure wash (`failed-row`)**: Virtual Machines product-page failed rows only.
 
 **The Track Is Not Readiness Rule.** Blue records pipeline traversal; green
 identifies a ready VM. Skipped stages can carry blue track without being completed
@@ -166,13 +167,13 @@ with system monospace fallbacks.
 - **Operational copy:** owned descriptions commonly use 14px, metadata 13–13.5px,
   detail/status notes 12–12.5px. Inherited plugin body typography is not replaced
   by a separately defined complete size scale.
-- **Labels:** table headings are uppercase using table-heading. Navigation,
-  buttons, station labels and most section labels remain sentence case. Home
-  counts are 26px/700, reducing to 20px on narrow screens.
+- **Labels:** use Title Case for owned headings, cards, tabs and actions; keep prose and status
+  sentences in sentence case and preserve brand names. The VM product table headings are visually
+  uppercase. Its status counts are 26px/700, reducing to 20px on narrow screens.
 - **Stations:** small and large roles differ in label size and top spacing, not
   station geometry. Current and failed labels are bold (700).
 
-**The Command Face Rule.** In the owned VM/home content, use JetBrains Mono for
+**The Command Face Rule.** In the owned VM content, use JetBrains Mono for
 the full `ssh user@ip` command, not standalone IPs, names or general metadata.
 The VM access facts render the IP in the regular face. Global CSS also assigns
 mono to `code`, `pre`, `kbd` and BUI's monospace token, so inherited code/log
@@ -192,10 +193,9 @@ The signed-in shell is a full-height (`100vh`) white flex column. A non-shrinkin
 top bar (56px) sits above a separately vertically scrollable content area. It is
 not a sidebar and is not implemented as an overlay on the page.
 
-Home and Resources fill the available content width with `32px 20px 48px` page
-padding and no maximum-width cap. Their headers wrap,
-aligning titles and actions at the bottom with a 24px gap. Home adds a full-width demo-mode control
-panel below the header; the count strip starts 28px below that panel. These are observed measurements, not a new universal
+Home, Resources and Virtual Machines fill the available content width with `32px 20px 48px` page
+padding and no maximum-width cap. Their headers wrap. The Virtual Machines page adds a full-width
+Demo Mode panel below its header; the status strip starts 28px below the panel. These are observed measurements, not a new universal
 spacing-token scale. Owned surfaces commonly use 8/12/16/20/24px intervals, but
 also intentional 10/14/28px gaps; do not claim a strict grid for every measurement.
 
@@ -212,14 +212,14 @@ expanding the page. Entity facts can shrink below 180px on narrow cards.
 | Boundary           | Actual effect                                                                                                                                                                                                                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | At or below 600px  | Pipeline labels are visually hidden except running/retrying/failed stations; columns follow the run's stage list.                                                                                                                  |
-| At or below 760px  | Home/Resources padding becomes `24px 16px 40px`; home counts shrink. Top bar tightens padding/gaps, hides the brand wordmark, Search navigation tab and duplicate settings icon; avatar settings access and search trigger remain. |
-| At or below 1000px | Home table header disappears; each VM becomes a stacked block, pipeline width becomes fluid, and the action aligns left.                                                                                                           |
+| At or below 760px  | Home/Resources/Virtual Machines padding becomes `24px 16px 40px`; VM status counts shrink. Top bar tightens padding/gaps, hides the brand wordmark, Search navigation tab and duplicate settings icon; avatar settings access and search trigger remain. |
+| At or below 1000px | VM product table header disappears; each VM becomes a stacked block, pipeline width becomes fluid, and the action aligns left. |
 | At or below 1100px | Top-bar search trigger becomes a 34px icon square and profile name/team text disappears.                                                                                                                                           |
 | At or above 1100px | VM content with info cards uses a `2fr / 1fr` split. Exactly 1100px also meets the top-bar compact rule above.                                                                                                                     |
 
-Above its stacking breakpoint, the home table has a 1080px minimum width and an
+Above its stacking breakpoint, the VM product table has a 1080px minimum width and an
 overflow wrapper; its pipeline is 520px wide. The Resources pipeline cell stays
-300px wide and uses the stock catalog table rather than home's stacked-row
+300px wide and uses the stock catalog table rather than the VM product page's stacked-row
 implementation. Settings uses MUI `xs={12}` / `md={6}` columns, retaining the
 framework breakpoint rather than one of these owned media queries.
 
@@ -234,7 +234,7 @@ shadowless: those are not all overridden.
 Attention effects are meaningful, not ambient depth: the current station pulses
 with a white-separated blue halo over 2.4 seconds using
 `cubic-bezier(0.16, 1, 0.3, 1)`. Reduced-motion preference disables that animation.
-Home's green refresh dot has a static translucent halo. Owned home buttons and
+The VM product page's green refresh dot has a static translucent halo. Owned page buttons and
 navigation use short 160ms ease-out colour/border/background transitions.
 
 ## Shapes
@@ -242,11 +242,11 @@ navigation use short 160ms ease-out colour/border/background transitions.
 Controls and command blocks use the control radius; theme rounded Paper uses the
 paper radius, and chips use the smaller chip radius. The selected direction's
 6px shorthand is therefore not a universal radius in implementation. Ordinary
-dividers are one pixel; home's count strip starts with a two-pixel ink rule;
+dividers are one pixel; the VM product count strip starts with a two-pixel ink rule;
 selected navigation/filter underlines are three pixels.
 
 The signature geometry is circular size bullets and station stops joined by a
-horizontal line. Home size bullets are 34px; VM-header bullets are 40px. They carry
+horizontal line. VM product-page size bullets are 34px; VM-header bullets are 40px. They carry
 the first character of the requested size, or `?` when unavailable, in white
 heavy type (800). Finalize is a squared terminus cap with a small 3px corner
 radius, deliberately distinct from the circular preceding stations. Skipped
@@ -280,12 +280,12 @@ the skipped variant still supplies tick dimensions. Small lines reserve 22px abo
 large lines reserve 26px. Dot and track dimensions are identical at both sizes.
 The line and each grid station explicitly shrink to their container; labels truncate
 within their station even on mobile (10px labels), so the last stop cannot be pushed off-card.
-Large is used by the VM card, small by home and Resources. Labels ellipsize rather
-than wrapping. Resources always requests screen-reader-only labels; home/card
-labels follow the 600px rule. Each item retains a text status and title tooltip.
+Large is used by the VM card, small by Virtual Machines and Resources. Labels ellipsize rather
+than wrapping. Resources always requests screen-reader-only labels; VM product and detail labels
+follow the 600px rule. Each item retains a text status and title tooltip.
 
 The model reads `RunView.stages` from the authenticated `vms` API. No stage annotation
-parsing or inferred completion remains. Home and Resources each issue one `/summary`
+parsing or inferred completion remains. Home, Virtual Machines and Resources each issue one `/summary`
 request, join by VM name and refresh about every five seconds (including terminal
 summaries, to discover newly created runs). Without a known run they show coarse
 `cf/status` and "No run known", not fabricated stage observations. Summary failures
@@ -298,15 +298,15 @@ Overall VM state and process state are separate concepts:
 | VM state     | Source `cf/status`         | Display / marker                                                                                                                          |
 | ------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `ready`      | `ready`                    | Ready; green.                                                                                                                             |
-| `building`   | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Home filter calls this In progress. |
+| `building`   | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Product filter calls this In Progress. |
 | `failed`     | `failed`                   | Failed at the first failed station, otherwise Failed; red marker and darker red text.                                                     |
 | `destroying` | `destroying`               | Destroying; grey marker and retired line.                                                                                                 |
-| `stopped`    | `ready` + health check `stopped` | Stopped; grey. Home filter Stopped. A `ready` VM with a running instance reads Running; one with no instance, Instance not found (red). |
-| `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter.                                                                |
+| `stopped`    | `ready` + health check `stopped` | Stopped; grey. Product filter Stopped. A `ready` VM with a running instance reads Running; one with no instance, Instance not found (red). |
+| `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated product filter. |
 
 Attention helpers choose the first failed stage before a running/retrying stage.
 A known active or failed run takes precedence over coarse catalog status. The shared
-`vmRunLabel` names the operation on Home, Resources and the VM header: provision is
+`vmRunLabel` names the operation on Home, Virtual Machines, Resources and the VM header: provision is
 Building · <stage>, modify is Modifying · <stage>, re-apply is Re-applying configuration
 · <stage>, power runs are Starting / Stopping / Rebooting, OS updates Updating OS, destroy is
 Destroying. A retrying stage adds · retrying. A failed run names Failed at <stage> (power and
@@ -320,8 +320,8 @@ success alone. Color/filter state remains separate from this human wording.
 ### Buttons, fields and browser surfaces
 
 Primary owned actions are blue with white text; secondary actions are white,
-outlined and ink-labelled. Home/Resources header actions are 40px high with 16px
-horizontal padding; home row actions are 34px high with 12px padding; VM-card
+outlined and ink-labelled. Resources and Virtual Machines header actions are 40px high with 16px
+horizontal padding; VM product-page row actions are 34px high with 12px padding; VM-card
 actions are 36px high with 14px padding. Button labels use weight 600 without
 automatic uppercase. Hover darkens primary backgrounds or strengthens outlines.
 
@@ -334,11 +334,17 @@ rules do not establish a verified contrast/accessibility conformance claim.
 
 ### Home
 
-Greeting and team/resource summary lead into Get SSH certificate and Launch.
-The ink-ruled count strip is itself the tablist/filter: All, In progress, Ready,
-Failed, Destroying. There is no separate filter-tab row or eyebrow above the
-greeting. Selected counts have a blue underline. A refresh note sits above the
-table; errors, loading, no-VM and empty-filter states have explicit copy/actions.
+The greeting and team lead into **Launch a Product**. **Your Resources** groups the visible catalog
+by category and product, with counts and linked resources. VM rows show platform and
+state, not pipeline or SSH actions. Unclassified resources have a fallback section. The product's
+link opens the full list; **Browse All Resources** opens the searchable inventory.
+
+### Virtual Machines
+
+The **Compute → Virtual Machines** product page owns VM operations across clouds: **Launch a Virtual
+Machine**, **Get SSH Certificate**, Demo Mode and a status filter strip (All, In Progress, Ready,
+Stopped, Failed, Destroying). Selected counts have a blue underline. A refresh note sits above the
+table; errors, loading, no-VM and empty-filter states have explicit copy and actions.
 
 Rows show size bullet/name/state, pipeline, details/software chips, **Activity time**
 and one next action. Activity time is Ready since <absolute date/time> from
@@ -348,7 +354,8 @@ VM request age. Resources has the same Activity time column, and the VM card use
 the same component. Failed rows sort first, then building, ready, other,
 destroying, with name sorting within each group. Ready links to the certificate
 template; building/failed link to View run only when a run URL exists. No action
-is fabricated when unavailable. Run links go to `/vms/runs/<id>`. Home polls the catalog about every 10 seconds.
+is fabricated when unavailable. Run links go to `/vms/runs/<id>`. Home and the VM product page poll
+the catalog about every 10 seconds.
 Team scoping is enforced by the existing catalog permission policy, not a local
 team-only filter; administrators can see all VMs.
 
@@ -360,21 +367,19 @@ initials avatar. The apparent search field is a trigger, not an inline text inpu
 Active navigation has an ink label and blue underline. Avatar access goes to
 settings, including when the separate settings icon is hidden.
 
-Launch is a card flow in the same page shell as Resources (32px title, muted subtitle, a step
-trail "Product › Platform › Image › Configure" whose earlier steps are links): product cards, then
-platform cards (unavailable platforms dimmed with a grey "Coming soon" pill), then image cards
-modelled on a distribution picker: radio and OS name, a full-width version select, no footer; the
-selected card gets the blue border and a pale blue fill. Product and platform cards advance on
-click; the image step has a blue **Continue** button. The form that follows shows the chosen
-platform and image in a bordered strip with a **Change** link instead of dropdowns.
+Launch is a card flow with a 32px title, muted subtitle and linked step trail: Product Type › Product ›
+Platform › Image › Configure. Platform cards use provider names without OS copy; vSphere is marked
+**Coming Soon**. Each image card represents one OS release and remains enabled even when it is the only
+choice. The selected card gets a blue border and pale blue fill. **Continue** opens the form with the
+selected image version; **Change** returns to the selected image.
 
 Resources owns its title/action shell but composes stock catalog filters, table,
-search, sorting and pagination. Only a nonempty all-VM result set gets Name,
-State, Pipeline, Activity time, Owner and Lifecycle columns (Title is hidden). Mixed, other and
-empty lists use stock column selection. Normal users' kind UI is restricted to
+search, sorting and pagination. Resource lists add Product; nonempty all-VM results also show
+State, Pipeline and Activity Time. Mixed results keep the stock columns alongside Product.
+Normal users' kind UI is restricted to
 Resource; admins retain the full picker. This is not a new API security boundary.
 
-VM pages replace the entity header with Resources breadcrumb, VM name, a state pill
+VM pages replace the entity header with Resources and Virtual Machines breadcrumbs, VM name, a state pill
 (dot + live label), favourite star, the day-2 action bar (Start or Stop, Reboot, Modify,
 and a ⋯ menu with Apply OS updates, Re-apply configuration and red Destroy VM), and a meta
 line with team, OS/platform and size. Every action except Modify opens a confirm dialog;
@@ -452,7 +457,7 @@ Demo controls and the compute picker's restrictions discover `vms`, using
 ### Stock and owned boundaries; known limitations
 
 - **Owned:** theme/BUI browser surfaces, top-bar layout/navigation/mark, home,
-  Resources shell and VM columns, kind picker override, VM header/content/card,
+  Resources shell and VM columns, product pages, launch flow, kind picker override, VM header/content/card,
   password sign-in composition and VM run pages.
 - **Retained plugin building blocks:** catalog filtering/table mechanics, entity
   favourites, InfoCards, search modal/results, template picker/form fields and
@@ -482,7 +487,7 @@ Demo controls and the compute picker's restrictions discover `vms`, using
   corresponding catalog annotations, not the newest run's creation time. The VM card's
   last-checked time is local catalog-fetch time; catalog checks continue, while
   the header remains based on the enclosing entity. None proves when a workflow
-  state changed. Home's refresh dot remains green even when an error is shown;
+  state changed. The VM product page's refresh dot remains green even when an error is shown;
   it is not independently verified workflow health.
 - **Light only:** `theme:app/dark` is disabled in `app-config.yaml`. General
   settings intentionally shows only stock profile and identity cards, not theme

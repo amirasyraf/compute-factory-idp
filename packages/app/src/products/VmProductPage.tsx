@@ -1,0 +1,661 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Entity } from '@backstage/catalog-model';
+import { Link } from '@backstage/core-components';
+import { useApi } from '@backstage/core-plugin-api';
+import { catalogApiRef } from '@backstage/plugin-catalog-react';
+import { DemoModePanel } from '../DemoModePanel';
+import { launchPath, virtualMachines } from './catalog';
+import {
+  PipelineLine,
+  activeStation,
+  VmState,
+  runProcesses,
+  runStations,
+  runVmStatus,
+  useRunSummary,
+  ObservedVm,
+  RunView,
+  getVmConfiguration,
+  osLabel,
+  platformLabel,
+  sizeBadge,
+  usePlatforms,
+  useVmSizeText,
+  vmColors,
+  vmState,
+  vmStateColor,
+  vmRunLabel,
+  stageLabel,
+  VmActivityTime,
+} from '@internal/plugin-vm-status';
+import { makeStyles } from '@material-ui/core';
+import AddIcon from '@material-ui/icons/Add';
+import VpnKeyOutlined from '@material-ui/icons/VpnKeyOutlined';
+
+const LAUNCH = launchPath(virtualMachines);
+const SSH_CERT = '/create/templates/default/ssh-cert';
+
+type Filter =
+  | 'all'
+  | 'building'
+  | 'ready'
+  | 'stopped'
+  | 'failed'
+  | 'destroying';
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'building', label: 'In Progress' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'stopped', label: 'Stopped' },
+  { id: 'failed', label: 'Failed' },
+  { id: 'destroying', label: 'Destroying' },
+];
+
+const useStyles = makeStyles({
+  root: {
+    padding: '32px 20px 48px',
+    '@media (max-width: 760px)': { padding: '24px 16px 40px' },
+  },
+  head: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: 24,
+    flexWrap: 'wrap',
+  },
+  h1: {
+    fontSize: 32,
+    fontWeight: 700,
+    letterSpacing: '-0.025em',
+    lineHeight: 1.1,
+    margin: 0,
+    textWrap: 'balance',
+  } as any,
+  sub: { color: vmColors.mute, fontSize: 14, marginTop: 8 },
+  crumb: { fontSize: 13, color: vmColors.mute, marginBottom: 16 },
+  buttons: { display: 'flex', gap: 10, flexWrap: 'wrap' },
+  btn: {
+    height: 40,
+    padding: '0 16px',
+    borderRadius: 6,
+    border: '1px solid #E3E5E8',
+    background: '#fff',
+    color: vmColors.ink,
+    fontWeight: 600,
+    fontSize: 14,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    textDecoration: 'none',
+    transition: 'border-color 160ms ease-out, background 160ms ease-out',
+    '& svg': { fontSize: 18 },
+    '&:hover': { borderColor: '#C9CDD2', textDecoration: 'none' },
+  },
+  primary: {
+    background: vmColors.blue,
+    borderColor: vmColors.blue,
+    color: '#fff',
+    '&:hover': { background: '#0A4FB0', borderColor: '#0A4FB0' },
+  },
+  strip: {
+    display: 'flex',
+    marginTop: 28,
+    borderTop: `2px solid ${vmColors.ink}`,
+    borderBottom: '1px solid #E3E5E8',
+    flexWrap: 'wrap',
+  },
+  count: {
+    appearance: 'none',
+    border: 0,
+    borderRight: '1px solid #E3E5E8',
+    background: 'transparent',
+    font: 'inherit',
+    color: vmColors.mute,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 10,
+    padding: '14px 28px 12px',
+    borderBottomWidth: 3,
+    borderBottomStyle: 'solid',
+    borderBottomColor: 'transparent',
+    marginBottom: -1,
+    whiteSpace: 'nowrap',
+    '&:first-child': { paddingLeft: 0 },
+    '&:last-child': { borderRight: 0 },
+    '& b': {
+      fontSize: 26,
+      fontWeight: 700,
+      letterSpacing: '-0.02em',
+      color: vmColors.ink,
+    },
+    '&:hover': { color: vmColors.ink },
+    '@media (max-width: 760px)': {
+      padding: '10px 14px 8px',
+      gap: 6,
+      '& b': { fontSize: 20 },
+      '&:first-child': { paddingLeft: 0 },
+    },
+  },
+  countOn: {
+    color: vmColors.ink,
+    fontWeight: 600,
+    borderBottomColor: vmColors.blue,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    display: 'inline-block',
+    marginRight: 6,
+    verticalAlign: 1,
+  },
+  live: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    gap: 8,
+    color: vmColors.mute,
+    fontSize: 13,
+    margin: '14px 0 10px',
+    '& b': { color: vmColors.ink, fontWeight: 600 },
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: '50%',
+    background: vmColors.green,
+    boxShadow: '0 0 0 3px rgba(0,147,90,.15)',
+  },
+  tableWrap: { overflowX: 'auto' },
+  table: {
+    width: '100%',
+    minWidth: 1080,
+    borderCollapse: 'collapse',
+    '& th': {
+      textAlign: 'left',
+      fontSize: 11,
+      fontWeight: 600,
+      letterSpacing: '0.07em',
+      textTransform: 'uppercase',
+      color: vmColors.mute,
+      padding: '9px 12px',
+      borderBottom: '1px solid #E3E5E8',
+      background: '#F3F4F5',
+    },
+    '& td': {
+      padding: '18px 12px',
+      borderBottom: '1px solid #E3E5E8',
+      verticalAlign: 'middle',
+    },
+    // Narrow screens: each VM becomes a stacked block, the line spans the width.
+    '@media (max-width: 1000px)': {
+      minWidth: 0,
+      '& thead': { display: 'none' },
+      '& tbody, & tr, & td': { display: 'block', width: '100%' },
+      '& tr': { padding: '16px 0', borderBottom: '1px solid #E3E5E8' },
+      '& td': { padding: '6px 12px', borderBottom: 0 },
+      '& td:empty': { display: 'none' },
+    },
+  },
+  failRow: {
+    background: '#FEF6F5',
+    '& td': { background: '#FEF6F5' },
+  },
+  vm: { display: 'flex', alignItems: 'center', gap: 14 },
+  bullet: {
+    width: 34,
+    height: 34,
+    borderRadius: '50%',
+    color: '#fff',
+    fontWeight: 800,
+    fontSize: 15,
+    display: 'grid',
+    placeItems: 'center',
+    flex: 'none',
+  },
+  name: {
+    whiteSpace: 'nowrap',
+    fontSize: 15,
+    fontWeight: 600,
+    color: vmColors.ink,
+    textDecoration: 'none',
+    '&:hover': { color: vmColors.blue, textDecoration: 'underline' },
+  },
+  state: {
+    fontSize: 12.5,
+    fontWeight: 600,
+    marginTop: 2,
+    whiteSpace: 'nowrap',
+  },
+  line: {
+    width: 520,
+    '@media (max-width: 1000px)': { width: '100%' },
+  },
+  meta: { fontSize: 13, color: vmColors.mute, '& div + div': { marginTop: 3 } },
+  mono: {
+    fontFamily: '"JetBrains Mono", ui-monospace, Menlo, monospace',
+    fontSize: 12.5,
+    color: vmColors.ink,
+  },
+  chip: {
+    display: 'inline-block',
+    fontSize: 11.5,
+    fontWeight: 500,
+    background: '#F3F4F5',
+    borderRadius: 4,
+    padding: '1px 7px',
+    color: vmColors.ink,
+    marginRight: 4,
+  },
+  when: { fontSize: 12.5, color: vmColors.mute, minWidth: 150 },
+  act: {
+    textAlign: 'right',
+    whiteSpace: 'nowrap',
+    '@media (max-width: 1000px)': { textAlign: 'left', paddingTop: 10 },
+  },
+  small: {
+    height: 34,
+    padding: '0 12px',
+    fontSize: 13,
+  },
+  danger: {
+    background: vmColors.red,
+    borderColor: vmColors.red,
+    color: '#fff',
+    '&:hover': { background: vmColors.redText, borderColor: vmColors.redText },
+  },
+  empty: {
+    padding: '56px 0',
+    textAlign: 'center',
+    color: vmColors.mute,
+    '& h2': {
+      color: vmColors.ink,
+      fontSize: 18,
+      fontWeight: 700,
+      margin: '0 0 6px',
+    },
+    '& p': { margin: '0 0 20px' },
+  },
+  error: { color: vmColors.redText, fontSize: 14, padding: '24px 0' },
+});
+
+type Row = {
+  entity: Entity;
+  state: VmState;
+  run?: RunView;
+  /** Health check: undefined = not known, null = no instance found in the VM's cloud. */
+  observed?: ObservedVm | null;
+};
+
+function VmRow({ entity, state, run, observed }: Row) {
+  const classes = useStyles();
+  const annotations = entity.metadata.annotations ?? {};
+  const processes = runProcesses(run);
+  const stations = runStations(run);
+  const desired = getVmConfiguration(entity.spec);
+  const sizeText = useVmSizeText(entity);
+  const color = vmStateColor(state);
+  const ip =
+    observed === undefined ? annotations['cf/public-ip'] : observed?.publicIp;
+  // Every VM's inventory records its login user; the fallback covers only older entries.
+  const user = annotations['cf/ssh-user'] || 'ubuntu';
+  const runUrl = run ? `/vms/runs/${run.id}` : undefined;
+  const namespace = entity.metadata.namespace ?? 'default';
+  const name = entity.metadata.name;
+  const active = activeStation(processes, stations);
+  const failedStage = run?.stages.find(
+    stage => stage.status === 'failed' && stage.id !== 'finalize',
+  );
+  const platforms = usePlatforms();
+  const os = `${osLabel(desired.platform, desired.os, platforms)}${
+    desired.imageVersion ? ` ${desired.imageVersion}` : ''
+  } on ${platformLabel(desired.platform, platforms)}`;
+
+  let action = null;
+  if (state === 'ready') {
+    action = (
+      <Link to={SSH_CERT} className={`${classes.btn} ${classes.small}`}>
+        Get SSH Certificate
+      </Link>
+    );
+  } else if (runUrl && (state === 'failed' || state === 'building')) {
+    action = (
+      <a
+        href={runUrl}
+        target="_blank"
+        rel="noreferrer"
+        className={`${classes.btn} ${classes.small} ${
+          state === 'failed' ? classes.danger : ''
+        }`}
+      >
+        View Run
+      </a>
+    );
+  }
+
+  return (
+    <tr className={state === 'failed' ? classes.failRow : undefined}>
+      <td>
+        <div className={classes.vm}>
+          <span
+            className={classes.bullet}
+            style={{ background: color }}
+            title={sizeText}
+          >
+            {sizeBadge(entity)}
+          </span>
+          <div>
+            <Link
+              to={`/catalog/${namespace}/resource/${name}`}
+              className={classes.name}
+              style={state === 'destroying' ? { color: vmColors.mute } : {}}
+            >
+              {entity.metadata.title ?? name}
+            </Link>
+            <div
+              className={classes.state}
+              style={{
+                color: state === 'failed' ? vmColors.redText : color,
+              }}
+            >
+              <i className={classes.dot} style={{ background: color }} />
+              {vmRunLabel(run, annotations['cf/status'], observed)}
+            </div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <div className={classes.line}>
+          {run ? (
+            <PipelineLine
+              processes={processes}
+              stations={stations}
+              retired={state === 'destroying'}
+            />
+          ) : (
+            <span>No run known</span>
+          )}
+        </div>
+      </td>
+      <td className={classes.meta}>
+        {state === 'ready' && ip ? (
+          <div>
+            {os} ·{' '}
+            <span className={classes.mono}>
+              ssh {user}@{ip}
+            </span>
+          </div>
+        ) : (
+          <div>
+            {os} · {sizeText}
+          </div>
+        )}
+        {active &&
+          !failedStage &&
+          (state === 'building' || state === 'failed') && (
+            <div
+              style={
+                active.status === 'failed'
+                  ? { color: vmColors.redText, fontWeight: 600 }
+                  : { color: vmColors.ink }
+              }
+            >
+              Stage {active.index + 1} of {stations.length}
+            </div>
+          )}
+        {failedStage && (
+          <div style={{ color: vmColors.redText, fontWeight: 600 }}>
+            {stageLabel(failedStage.id)} stage failed
+          </div>
+        )}
+        {desired.software !== 'none' && (
+          <div>
+            {desired.software.split(', ').map(s => (
+              <span key={s} className={classes.chip}>
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
+      </td>
+      <td className={classes.when}>
+        <VmActivityTime annotations={annotations} />
+      </td>
+      <td className={classes.act}>{action}</td>
+    </tr>
+  );
+}
+
+export function VmProductPage() {
+  const classes = useStyles();
+  const { runs, observed, error: summaryError } = useRunSummary();
+  const catalog = useApi(catalogApiRef);
+  const [vms, setVms] = useState<Entity[]>();
+  const [error, setError] = useState<string>();
+  const [refreshed, setRefreshed] = useState<Date>();
+  const [filter, setFilter] = useState<Filter>('all');
+
+  useEffect(() => {
+    let disposed = false;
+    let fetching = false;
+    const load = async () => {
+      if (fetching) return;
+      fetching = true;
+      try {
+        const res = await catalog.getEntities({
+          filter: { kind: 'resource', 'spec.type': 'vm' },
+        });
+        if (disposed) return;
+        setVms(res.items);
+        setError(undefined);
+        setRefreshed(new Date());
+      } catch (e) {
+        if (!disposed)
+          setError(
+            `Could not load your team's machines: ${
+              (e as Error).message
+            }. Retrying every 10 seconds.`,
+          );
+      } finally {
+        fetching = false;
+      }
+    };
+    load();
+    const timer = window.setInterval(load, 10000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [catalog]);
+
+  const rows: Row[] = useMemo(() => {
+    const rank: Record<VmState, number> = {
+      failed: 0,
+      building: 1,
+      ready: 2,
+      stopped: 3,
+      other: 4,
+      destroying: 5,
+    };
+    return (vms ?? [])
+      .map(entity => {
+        const name = entity.metadata.name;
+        const seen = name in observed ? observed[name] : undefined;
+        return {
+          entity,
+          run: runs[name],
+          observed: seen,
+          state: vmState(
+            runVmStatus(
+              runs[name],
+              entity.metadata.annotations?.['cf/status'],
+              seen,
+            ),
+          ),
+        };
+      })
+      .sort(
+        (a, b) =>
+          rank[a.state] - rank[b.state] ||
+          a.entity.metadata.name.localeCompare(b.entity.metadata.name),
+      );
+  }, [vms, runs, observed]);
+
+  const counts = useMemo(() => {
+    const c: Record<Filter, number> = {
+      all: rows.length,
+      building: 0,
+      ready: 0,
+      stopped: 0,
+      failed: 0,
+      destroying: 0,
+    };
+    rows.forEach(r => {
+      if (r.state in c) c[r.state as Filter] += 1;
+    });
+    return c;
+  }, [rows]);
+
+  const shown = filter === 'all' ? rows : rows.filter(r => r.state === filter);
+  const dotColor: Record<Filter, string | undefined> = {
+    all: undefined,
+    building: vmColors.blue,
+    ready: vmColors.green,
+    stopped: vmColors.grey,
+    failed: vmColors.red,
+    destroying: vmColors.grey,
+  };
+
+  return (
+    <div className={classes.root}>
+      <nav className={classes.crumb} aria-label="Breadcrumb">
+        <Link to="/catalog">Resources</Link> / Compute / Virtual Machines
+      </nav>
+      <div className={classes.head}>
+        <div>
+          <h1 className={classes.h1}>{virtualMachines.title}</h1>
+          <div className={classes.sub}>
+            Manage virtual machines across platforms.
+          </div>
+        </div>
+        <div className={classes.buttons}>
+          <Link to={SSH_CERT} className={classes.btn}>
+            <VpnKeyOutlined />
+            Get SSH Certificate
+          </Link>
+          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
+            <AddIcon />
+            Launch a Virtual Machine
+          </Link>
+        </div>
+      </div>
+
+      <DemoModePanel />
+
+      <div className={classes.strip} role="tablist" aria-label="Filter VMs">
+        {FILTERS.map(f => (
+          <button
+            key={f.id}
+            type="button"
+            role="tab"
+            aria-selected={filter === f.id}
+            className={`${classes.count} ${
+              filter === f.id ? classes.countOn : ''
+            }`}
+            onClick={() => setFilter(f.id)}
+          >
+            <b>{vms ? counts[f.id] : '–'}</b>
+            <span>
+              {dotColor[f.id] && (
+                <i
+                  className={classes.dot}
+                  style={{ background: dotColor[f.id] }}
+                />
+              )}
+              {f.label}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <div className={classes.live} aria-live="polite">
+        <span className={classes.liveDot} />
+        Updates about every 10 seconds
+        {refreshed && (
+          <>
+            {' · last refreshed '}
+            <b>{refreshed.toLocaleTimeString()}</b>
+          </>
+        )}
+      </div>
+
+      {error && <div className={classes.error}>{error}</div>}
+      {summaryError && (
+        <div role="alert" className={classes.error}>
+          Run summary unavailable: {summaryError}. Showing catalog status.
+        </div>
+      )}
+
+      {!vms && !error && (
+        <div className={classes.empty}>Loading your team's machines…</div>
+      )}
+
+      {vms && rows.length === 0 && (
+        <div className={classes.empty}>
+          <h2>No Virtual Machines Yet</h2>
+          <p>
+            Launch one and follow its pipeline from ServiceNow request to
+            Finalize.
+          </p>
+          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
+            <AddIcon />
+            Launch a Virtual Machine
+          </Link>
+        </div>
+      )}
+
+      {vms && rows.length > 0 && shown.length === 0 && (
+        <div className={classes.empty}>
+          <h2>No Matching Virtual Machines</h2>
+          <p>No machines match this filter.</p>
+          <button
+            type="button"
+            className={classes.btn}
+            onClick={() => setFilter('all')}
+          >
+            Show All Machines
+          </button>
+        </div>
+      )}
+
+      {shown.length > 0 && (
+        <div className={classes.tableWrap}>
+          <table className={classes.table}>
+            <thead>
+              <tr>
+                <th style={{ width: 260 }}>Machine</th>
+                <th style={{ width: 560 }}>Pipeline</th>
+                <th>Details</th>
+                <th style={{ width: 180 }}>Activity Time</th>
+                <th style={{ width: 170 }}>
+                  <span style={{ position: 'absolute', left: -9999 }}>
+                    Next Action
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map(row => (
+                <VmRow
+                  key={row.entity.metadata.uid ?? row.entity.metadata.name}
+                  {...row}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
