@@ -34,6 +34,8 @@ export type PlatformInfo = {
   os: { id: string; label: string; versions: string[] }[];
   reservedTagPrefixes: string[];
   forbiddenTagKeyCharacters: string;
+  /** The public IP survives stop/start and resize. */
+  staticPublicIp?: boolean;
   error: string | null;
 };
 export type CatalogInstanceType = InstanceSpecs & {

@@ -222,8 +222,8 @@ const descriptions: Record<string, string> = {
   'ad-join': 'Apply the requested mock AD membership.',
   access: 'Grant the owning team SSH certificate access.',
   configure: 'Record the new desired configuration in inventory.',
-  start: 'Start the instance and record its new public IP address.',
-  stop: 'Stop the instance; its public IP address is released.',
+  start: 'Start the instance and record its public IP address.',
+  stop: 'Stop the instance; without a static IP its address is released.',
   reboot: 'Reboot the instance and wait until it is back.',
   'os-update':
     'Install all package updates; reboot only if an update needs it.',

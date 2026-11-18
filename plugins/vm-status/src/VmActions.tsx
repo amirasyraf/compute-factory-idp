@@ -100,6 +100,11 @@ export function VmActions({
   const [error, setError] = useState<string>();
   const name = entity.metadata.name;
   const platforms = usePlatforms();
+  const platform = (entity.spec as any)?.compute?.platform;
+  // Unknown platform info: describe the stricter case (a new address).
+  const staticIp = Boolean(
+    platforms?.find(item => item.id === platform)?.staticPublicIp,
+  );
 
   if (vm.state === 'destroying') return null;
   const locked = vm.busy || vm.incomplete || vm.status === 'missing';
@@ -111,10 +116,7 @@ export function VmActions({
   if (vm.busy) reason = 'A run is in progress';
   else if (vm.incomplete) reason = 'Finish or destroy the build first';
   else if (vm.status === 'missing')
-    reason = `No instance found in ${platformLabel(
-      (entity.spec as any)?.compute?.platform,
-      platforms,
-    )}`;
+    reason = `No instance found in ${platformLabel(platform, platforms)}`;
 
   const open = (next: Confirm) => {
     setMenu(null);
@@ -177,8 +179,9 @@ export function VmActions({
                 title: `Start ${name}?`,
                 body: (
                   <p>
-                    The VM starts with a new public IP address. Connect with the
-                    new address shown on this page.
+                    {staticIp
+                      ? 'The VM starts with its usual public IP address.'
+                      : 'The VM starts with a new public IP address. Connect with the new address shown on this page.'}
                   </p>
                 ),
                 confirm: 'Start VM',
@@ -195,8 +198,9 @@ export function VmActions({
                 body: (
                   <>
                     <p>
-                      The VM shuts down. Its disk is kept, but its public IP
-                      address is released: starting it again gives it a new one.
+                      {staticIp
+                        ? 'The VM shuts down and is deallocated, so its compute is no longer billed. Its disk and public IP address are kept.'
+                        : 'The VM shuts down. Its disk is kept, but its public IP address is released: starting it again gives it a new one.'}
                     </p>
                     <p>Open SSH sessions are disconnected.</p>
                   </>

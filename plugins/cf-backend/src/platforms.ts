@@ -19,6 +19,8 @@ export type Platform = {
   excludedInstanceTypePattern: RegExp | null;
   reservedTagPrefixes: string[];
   forbiddenTagKeyCharacters: string;
+  /** The public IP survives stop/start and resize (Azure static IP); AWS gets a new one. */
+  staticPublicIp: boolean;
 };
 
 export const validPlatform = (id: unknown): id is string =>
@@ -124,6 +126,7 @@ export async function loadPlatform(
       typeof raw.forbiddenTagKeyCharacters === 'string'
         ? raw.forbiddenTagKeyCharacters
         : '',
+    staticPublicIp: raw.staticPublicIp === true,
   };
 }
 

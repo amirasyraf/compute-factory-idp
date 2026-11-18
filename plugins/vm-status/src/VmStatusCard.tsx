@@ -212,7 +212,10 @@ export function VmStatusCard() {
   else if (vm.power === 'stopped')
     connect = (
       <p className={classes.note}>
-        The VM is stopped. Start it to connect; it gets a new public IP address.
+        The VM is stopped. Start it to connect
+        {platforms?.find(item => item.id === desired.platform)?.staticPublicIp
+          ? '; it keeps its public IP address.'
+          : '; it gets a new public IP address.'}
       </p>
     );
   else if (vm.status === 'missing')

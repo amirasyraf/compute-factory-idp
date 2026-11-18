@@ -398,6 +398,7 @@ export const vmSizesPlugin = createBackendPlugin({
                       })),
                       reservedTagPrefixes: info.reservedTagPrefixes,
                       forbiddenTagKeyCharacters: info.forbiddenTagKeyCharacters,
+                      staticPublicIp: info.staticPublicIp,
                       error: null,
                     };
                   } catch (error) {
@@ -408,6 +409,7 @@ export const vmSizesPlugin = createBackendPlugin({
                       os: [],
                       reservedTagPrefixes: [],
                       forbiddenTagKeyCharacters: '',
+                      staticPublicIp: false,
                       error: message(error),
                     };
                   }
@@ -420,6 +422,7 @@ export const vmSizesPlugin = createBackendPlugin({
                   os: [],
                   reservedTagPrefixes: [],
                   forbiddenTagKeyCharacters: '',
+                  staticPublicIp: false,
                   error: null,
                 })),
               ]),

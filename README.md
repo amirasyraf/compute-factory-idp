@@ -143,8 +143,9 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   - Each platform's `terraform/platforms/<p>/{platform.json,sizes.json}` is read from the platform repo's
     `main` through the GitHub API (cached 5 minutes, last good copy kept during outages). `PLATFORMS`
     (`aws`, `azure`) is the list the IDP can read specs and health for; `COMING_SOON` adds vSphere.
-  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions) and tag
-    rules per platform, for Launch and the tags editor.
+  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions), tag
+    rules and `staticPublicIp` per platform, for Launch, the tags editor and the stop/start wording
+    (Azure keeps its address; AWS gets a new one).
   - `GET /api/vm-sizes/sizes?platform=<p>` (default `aws`): XS-L with vCPU, memory, architecture and
     network. AWS from `ec2:DescribeInstanceTypes` (cached 1 hour); Azure from the Resource SKUs API,
     with `quotaOk`. Without cloud access it returns an `error` and types without specs.
