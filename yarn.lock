@@ -3943,6 +3943,7 @@ __metadata:
   dependencies:
     "@aws-sdk/client-ec2": "npm:^3.0.0"
     "@aws-sdk/client-secrets-manager": "npm:^3.0.0"
+    "@azure/identity": "npm:^4.0.0"
     "@backstage/backend-plugin-api": "npm:^1.0.0"
     "@backstage/catalog-model": "npm:^1.0.0"
     "@backstage/cli": "npm:^0.36.7"

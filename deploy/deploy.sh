@@ -4,7 +4,7 @@ if [[ $# -ne 2 ]]; then echo "Usage: $0 <host> <env-file>" >&2; exit 2; fi
 host=$1
 env_file=$(cd "$(dirname "$2")" && pwd)/$(basename "$2")
 [[ -r "$env_file" ]] || { echo 'Env file is not readable' >&2; exit 2; }
-for key in IDP_DOMAIN IDP_USERS_B64 GITHUB_TOKEN POSTGRES_PASSWORD BACKSTAGE_TOKEN AWS_REGION SSH_CA_SECRET_ID; do
+for key in IDP_DOMAIN IDP_USERS_B64 GITHUB_TOKEN POSTGRES_PASSWORD BACKSTAGE_TOKEN AWS_REGION SSH_CA_SECRET_ID AZURE_READER_SECRET_ID; do
   grep -qE "^${key}=.+" "$env_file" || { echo "Missing env key: $key" >&2; exit 2; }
 done
 [[ "$host" =~ ^[a-zA-Z0-9.-]+$ ]] || { echo 'Invalid host' >&2; exit 2; }

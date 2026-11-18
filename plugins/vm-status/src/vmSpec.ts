@@ -38,7 +38,7 @@ export function getVmConfiguration(value: unknown) {
     software: software.join(', ') || 'none',
     adJoin:
       configuration.adJoin === true ? 'Requested (mock)' : 'Not requested',
-    // AWS tags as launched: billing fields become cost_center/project_code.
+    // Cloud tags as launched: billing fields become cost_center/project_code.
     tags: entries({
       ...Object.fromEntries(
         Object.entries(object(spec.billing)).map(([key, item]) => [

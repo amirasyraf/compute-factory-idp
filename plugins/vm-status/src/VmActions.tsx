@@ -21,6 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { VmOperation, useVmsApi } from './runs';
 import { vmColors } from './pipeline';
 import { deriveVm } from './vmLive';
+import { platformLabel, usePlatforms } from './vmSizes';
 
 const useStyles = makeStyles({
   bar: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
@@ -98,6 +99,7 @@ export function VmActions({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string>();
   const name = entity.metadata.name;
+  const platforms = usePlatforms();
 
   if (vm.state === 'destroying') return null;
   const locked = vm.busy || vm.incomplete || vm.status === 'missing';
@@ -108,7 +110,11 @@ export function VmActions({
   let reason: string | undefined;
   if (vm.busy) reason = 'A run is in progress';
   else if (vm.incomplete) reason = 'Finish or destroy the build first';
-  else if (vm.status === 'missing') reason = 'No instance found in AWS';
+  else if (vm.status === 'missing')
+    reason = `No instance found in ${platformLabel(
+      (entity.spec as any)?.compute?.platform,
+      platforms,
+    )}`;
 
   const open = (next: Confirm) => {
     setMenu(null);

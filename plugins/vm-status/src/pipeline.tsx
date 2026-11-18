@@ -188,10 +188,10 @@ export function runNoun(run: RunView): string {
   return RUN_NOUN[key ?? ''] ?? 'Run';
 }
 
-/** The VM as AWS reports it (undefined = not known, null = no instance found). */
+/** The VM as its cloud reports it (undefined = not known, null = no instance found). */
 export function observedLabel(observed: ObservedVm | null | undefined) {
   if (observed === undefined) return undefined;
-  if (observed === null) return 'Not found in AWS';
+  if (observed === null) return 'Instance not found';
   if (observed.state === 'running')
     return observed.health === 'impaired'
       ? 'Running · status checks failing'

@@ -12,7 +12,7 @@ import type {
 import { makeStyles } from '@material-ui/core';
 import { useLocation } from 'react-router-dom';
 import { getVmConfiguration } from './vmSpec';
-import { useVmSizeText } from './vmSizes';
+import { osLabel, platformLabel, usePlatforms, useVmSizeText } from './vmSizes';
 import { vmColors, vmStateColor } from './pipeline';
 import { deriveVm, useVmLive } from './vmLive';
 import { VmActions } from './VmActions';
@@ -130,6 +130,7 @@ function VmHeader({
   const entity = live.entity ?? initial;
   const sizeText = useVmSizeText(entity);
   const desired = getVmConfiguration(entity.spec);
+  const platforms = usePlatforms();
   const vm = deriveVm(entity, live);
   const flat = tabs.flatMap(tab => ('items' in tab ? tab.items : [tab]));
 
@@ -167,8 +168,8 @@ function VmHeader({
           Team <b>{desired.team}</b>
         </li>
         <li>
-          {desired.os === 'ubuntu' ? 'Ubuntu' : desired.os} on{' '}
-          {desired.platform.toUpperCase()}
+          {osLabel(desired.platform, desired.os, platforms)} on{' '}
+          {platformLabel(desired.platform, platforms)}
         </li>
         <li>{sizeText}</li>
       </ul>

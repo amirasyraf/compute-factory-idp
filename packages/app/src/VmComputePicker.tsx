@@ -5,11 +5,13 @@ import {
   ButtonBase,
   Checkbox,
   Chip,
+  Link,
   Collapse,
   FormControlLabel,
   FormHelperText,
   InputAdornment,
   MenuItem,
+  Paper,
   Radio,
   Tab,
   Table,
@@ -30,13 +32,17 @@ import ExpandMore from '@material-ui/icons/ExpandMore';
 import SearchIcon from '@material-ui/icons/Search';
 import type { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import { createFormField } from '@backstage/plugin-scaffolder-react/alpha';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   CatalogInstanceType,
   DemoRestriction,
   VmSize,
   memoryText,
+  osLabel,
+  platformLabel,
   useDemoRestriction,
   useInstanceTypeCatalog,
+  usePlatforms,
   useVmSizes,
 } from '@internal/plugin-vm-status';
 
@@ -128,11 +134,32 @@ const useStyles = makeStyles(theme => ({
     letterSpacing: 0.3,
   },
   row: { cursor: 'pointer' },
+  chosen: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(2),
+    padding: theme.spacing(1.5, 2),
+    marginBottom: theme.spacing(2),
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: 10,
+    '& small': { display: 'block', color: theme.palette.text.secondary },
+  },
   disabledRow: { opacity: 0.45, cursor: 'not-allowed' },
 }));
 
 function allowedType(type: string, restriction?: DemoRestriction) {
   return !restriction?.enabled || restriction.allowed.includes(type);
+}
+
+/** Why a type cannot be picked now, or undefined. Quota is known only where the cloud reports it (Azure). */
+function blockedReason(
+  type: string,
+  quotaOk: boolean | null | undefined,
+  restriction?: DemoRestriction,
+): string | undefined {
+  if (!allowedType(type, restriction)) return 'Unavailable in demo mode';
+  if (quotaOk === false) return 'Over vCPU quota';
+  return undefined;
 }
 
 function SizeCards({
@@ -155,7 +182,10 @@ function SizeCards({
     <div className={classes.cards} role="radiogroup" aria-label="Size">
       {options.map(size => {
         const info = sizes?.find(item => item.size === size);
-        const blocked = !!info && !allowedType(info.instanceType, restriction);
+        const reason =
+          info &&
+          blockedReason(info.instanceType, info.specs?.quotaOk, restriction);
+        const blocked = !!reason;
         const selected = value === size;
         return (
           <ButtonBase
@@ -174,6 +204,11 @@ function SizeCards({
               {sizeNames[size] ?? 'Size'}
             </Typography>
             <div className={classes.mono}>{info?.instanceType ?? '…'}</div>
+            {reason && (
+              <Typography variant="caption" color="error" display="block">
+                {reason}
+              </Typography>
+            )}
             {info?.specs ? (
               <ul className={classes.specs}>
                 <li>
@@ -229,16 +264,22 @@ function compareNatural(a: CatalogInstanceType, b: CatalogInstanceType) {
 }
 
 function InstanceTypePicker({
+  platform,
+  label,
   value,
   restriction,
   onSelect,
 }: {
+  platform: string;
+  label: string;
   value: string | undefined;
   restriction: DemoRestriction | undefined;
   onSelect(type: string): void;
 }) {
   const classes = useStyles();
-  const catalog = useInstanceTypeCatalog(true);
+  const catalog = useInstanceTypeCatalog(true, platform);
+  // Azure has no "previous generation" flag; every size counts as current.
+  const generations = platform === 'aws';
   const [category, setCategory] = useState('All');
   const [search, setSearch] = useState('');
   const [family, setFamily] = useState('all');
@@ -257,7 +298,8 @@ function InstanceTypePicker({
       types.filter(
         item =>
           (!currentOnly || item.currentGeneration) &&
-          (!allowedOnly || allowedType(item.type, restriction)),
+          (!allowedOnly ||
+            !blockedReason(item.type, item.quotaOk, restriction)),
       ),
     [types, currentOnly, allowedOnly, restriction],
   );
@@ -290,7 +332,7 @@ function InstanceTypePicker({
         (item.vcpus ?? 0) >= minVcpu &&
         (item.memoryMiB ?? 0) >= minMemory * 1024 &&
         (!query ||
-          item.type.includes(query) ||
+          item.type.toLowerCase().includes(query) ||
           item.category.toLowerCase().includes(query) ||
           (item.gpus ?? '').toLowerCase().includes(query)),
     );
@@ -316,7 +358,7 @@ function InstanceTypePicker({
   }, [families, family]);
 
   const direction = sort.desc ? 'desc' : 'asc';
-  const header = (key: SortKey, label: string, numeric = false) => (
+  const header = (key: SortKey, title: string, numeric = false) => (
     <TableCell
       align={numeric ? 'right' : 'left'}
       sortDirection={sort.key === key ? direction : false}
@@ -331,14 +373,16 @@ function InstanceTypePicker({
           }))
         }
       >
-        {label}
+        {title}
       </TableSortLabel>
     </TableCell>
   );
 
   if (!catalog)
     return (
-      <Typography variant="body2">Loading instance types from AWS…</Typography>
+      <Typography variant="body2">
+        Loading instance types from {label}…
+      </Typography>
     );
   if (catalog.error)
     return <FormHelperText error>{catalog.error}</FormHelperText>;
@@ -358,7 +402,8 @@ function InstanceTypePicker({
         </TableRow>,
       );
     }
-    const blocked = !allowedType(item.type, restriction);
+    const reason = blockedReason(item.type, item.quotaOk, restriction);
+    const blocked = !!reason;
     const selected = value === item.type;
     body.push(
       <TableRow
@@ -366,7 +411,7 @@ function InstanceTypePicker({
         hover={!blocked}
         selected={selected}
         aria-disabled={blocked}
-        title={blocked ? 'Not available while demo mode is on' : undefined}
+        title={reason}
         className={blocked ? classes.disabledRow : classes.row}
         onClick={() => !blocked && onSelect(item.type)}
       >
@@ -384,9 +429,7 @@ function InstanceTypePicker({
         <TableCell align="right">{item.vcpus ?? '—'}</TableCell>
         <TableCell align="right">{memoryText(item.memoryMiB)}</TableCell>
         <TableCell>{item.network ?? '—'}</TableCell>
-        <TableCell>
-          {blocked ? 'Unavailable in demo mode' : notes(item)}
-        </TableCell>
+        <TableCell>{reason ?? notes(item)}</TableCell>
       </TableRow>,
     );
   }
@@ -414,7 +457,11 @@ function InstanceTypePicker({
         <TextField
           size="small"
           variant="outlined"
-          placeholder="Search e.g. m7i, large, NVIDIA"
+          placeholder={
+            platform === 'azure'
+              ? 'Search e.g. D2s, v6, NVIDIA'
+              : 'Search e.g. m7i, large, NVIDIA'
+          }
           value={search}
           onChange={event => setSearch(event.target.value)}
           inputProps={{ 'aria-label': 'Search instance types' }}
@@ -474,17 +521,20 @@ function InstanceTypePicker({
             </MenuItem>
           ))}
         </TextField>
-        <FormControlLabel
-          control={
-            <Checkbox
-              color="primary"
-              checked={currentOnly}
-              onChange={event => setCurrentOnly(event.target.checked)}
-            />
-          }
-          label="Current generation only"
-        />
-        {restriction?.enabled && (
+        {generations && (
+          <FormControlLabel
+            control={
+              <Checkbox
+                color="primary"
+                checked={currentOnly}
+                onChange={event => setCurrentOnly(event.target.checked)}
+              />
+            }
+            label="Current generation only"
+          />
+        )}
+        {(restriction?.enabled ||
+          types.some(item => item.quotaOk === false)) && (
           <FormControlLabel
             control={
               <Checkbox
@@ -493,7 +543,7 @@ function InstanceTypePicker({
                 onChange={event => setAllowedOnly(event.target.checked)}
               />
             }
-            label="Hide types unavailable in demo mode"
+            label="Hide types I cannot launch now"
           />
         )}
       </div>
@@ -504,7 +554,7 @@ function InstanceTypePicker({
         </FormHelperText>
       )}
       <TableContainer className={classes.table}>
-        <Table size="small" stickyHeader aria-label="EC2 instance types">
+        <Table size="small" stickyHeader aria-label={`${label} instance types`}>
           <TableHead>
             <TableRow>
               <TableCell padding="checkbox" />
@@ -530,7 +580,7 @@ function InstanceTypePicker({
       </TableContainer>
       <FormHelperText>
         {rows.length} of {types.length} x86_64 instance types offered in this
-        region, live from AWS.
+        region, live from {label}.
       </FormHelperText>
     </Box>
   );
@@ -544,30 +594,36 @@ function enumOf(schema: unknown): string[] {
 }
 
 /**
- * `ui:field: VmComputePicker` on the platform vm-request template's `compute` object.
- * Size cards (XS-L) for regular users; a collapsed "Advanced" picker for any instance type
- * offered in the region. Submits exactly one of `size` or `instanceType`.
+ * `ui:field: VmComputePicker` on the platform vm-request/vm-modify templates' `compute` object.
+ * Platform and image are chosen on the Launch page (`?formData=`) and shown here with a link
+ * back; `ui:options.locked` (Modify) hides that link. Size cards (XS-L) for regular users and a
+ * collapsed "Advanced" picker for any instance type the platform offers in its region. Submits
+ * exactly one of `size` or `instanceType`.
  */
 function VmComputePickerField({
   onChange,
   formData,
   schema,
+  uiSchema,
   rawErrors,
   disabled,
 }: FieldExtensionComponentProps<Compute>) {
   const classes = useStyles();
-  const sizes = useVmSizes();
-  const restriction = useDemoRestriction();
   const properties = (schema.properties ?? {}) as Record<string, unknown>;
   const sizeOptions = enumOf(properties.size);
-  const platforms = enumOf(properties.platform);
-  const systems = enumOf(properties.os);
   const value: Compute = formData ?? {};
-  const [advanced, setAdvanced] = useState(Boolean(value.instanceType));
   const base = {
-    platform: value.platform ?? platforms[0],
-    os: value.os ?? systems[0],
+    platform: value.platform ?? enumOf(properties.platform)[0],
+    os: value.os ?? enumOf(properties.os)[0],
   };
+  const platforms = usePlatforms();
+  const sizes = useVmSizes(base.platform);
+  const restriction = useDemoRestriction();
+  const [advanced, setAdvanced] = useState(Boolean(value.instanceType));
+  const cloud = platformLabel(base.platform, platforms);
+  const locked = Boolean(
+    (uiSchema?.['ui:options'] as { locked?: boolean } | undefined)?.locked,
+  );
 
   useEffect(() => {
     if (!formData?.size && !formData?.instanceType) {
@@ -585,42 +641,25 @@ function VmComputePickerField({
 
   return (
     <Box my={2}>
-      <Box display="flex" gridGap={16} mb={2}>
-        <TextField
-          select
-          size="small"
-          variant="outlined"
-          label={label('platform', 'Platform')}
-          value={base.platform ?? ''}
-          disabled={disabled || platforms.length < 2}
-          onChange={event =>
-            onChange({ ...value, platform: event.target.value })
-          }
-          style={{ minWidth: 140 }}
-        >
-          {platforms.map(item => (
-            <MenuItem key={item} value={item}>
-              {item.toUpperCase()}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          size="small"
-          variant="outlined"
-          label={label('os', 'Operating system')}
-          value={base.os ?? ''}
-          disabled={disabled || systems.length < 2}
-          onChange={event => onChange({ ...value, os: event.target.value })}
-          style={{ minWidth: 160 }}
-        >
-          {systems.map(item => (
-            <MenuItem key={item} value={item}>
-              {item === 'ubuntu' ? 'Ubuntu' : item}
-            </MenuItem>
-          ))}
-        </TextField>
-      </Box>
+      <Paper variant="outlined" className={classes.chosen}>
+        <div>
+          <small>Platform</small>
+          <b>{cloud}</b>
+        </div>
+        <div>
+          <small>Image</small>
+          <b>{osLabel(base.platform, base.os, platforms)}</b>
+        </div>
+        {!locked && (
+          <Link
+            component={RouterLink}
+            to={`/launch/vm-request/${encodeURIComponent(base.platform ?? '')}`}
+            style={{ marginLeft: 'auto' }}
+          >
+            Change
+          </Link>
+        )}
+      </Paper>
       <Typography variant="subtitle1">
         <b>{label('size', 'Size')}</b>
       </Typography>
@@ -668,10 +707,12 @@ function VmComputePickerField({
         endIcon={advanced ? <ExpandLess /> : <ExpandMore />}
         aria-expanded={advanced}
       >
-        Advanced: choose a specific EC2 instance type
+        Advanced: choose a specific {cloud} instance type
       </Button>
       <Collapse in={advanced} unmountOnExit>
         <InstanceTypePicker
+          platform={base.platform ?? 'aws'}
+          label={cloud}
           value={custom}
           restriction={restriction}
           onSelect={instanceType => onChange({ ...base, instanceType })}

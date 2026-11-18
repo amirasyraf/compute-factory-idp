@@ -900,6 +900,22 @@ export function createOrchestrator(options: {
         await db<Run>('vm_runs').whereIn('id', latest).orderBy('name')
       ).map(runRow);
     },
+    /** Request ID -> `spec.compute.platform`, from each VM incarnation's provision run. */
+    async platforms(requestIds: string[]) {
+      const rows = await db<Run>('vm_runs')
+        .where({ kind: 'provision' })
+        .whereIn('request_id', requestIds)
+        .select('request_id', 'params');
+      return new Map(
+        rows.map(row => [
+          row.request_id,
+          String(
+            parse<Record<string, any>>(row.params, {})?.spec?.compute
+              ?.platform ?? '',
+          ),
+        ]),
+      );
+    },
   };
 }
 

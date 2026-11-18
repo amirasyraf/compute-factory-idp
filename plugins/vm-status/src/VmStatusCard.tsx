@@ -4,7 +4,7 @@ import { InfoCard, Link } from '@backstage/core-components';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { Button, makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
-import { useVmSizeText } from './vmSizes';
+import { platformLabel, usePlatforms, useVmSizeText } from './vmSizes';
 import { RunView } from './runs';
 import { VmRunView } from './RunView';
 import { observedLabel, runNoun, vmColors } from './pipeline';
@@ -175,6 +175,7 @@ export function VmStatusCard() {
   const entity = live.entity ?? initial;
   const sizeText = useVmSizeText(entity);
   const desired = getVmConfiguration(entity.spec);
+  const platforms = usePlatforms();
   const annotations = entity.metadata.annotations ?? {};
   const vm = deriveVm(entity, live);
   const [terminal, setTerminal] = useState(false);
@@ -217,8 +218,9 @@ export function VmStatusCard() {
   else if (vm.status === 'missing')
     connect = (
       <p className={classes.note} style={{ color: vmColors.redText }}>
-        No instance for this VM was found in AWS. Destroy the VM to remove its
-        record.
+        No instance for this VM was found in{' '}
+        {platformLabel(desired.platform, platforms)}. Destroy the VM to remove
+        its record.
       </p>
     );
   else if (vm.ip && vm.state !== 'building')

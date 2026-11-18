@@ -97,6 +97,8 @@ export function createTerminals(logger: LoggerService) {
       user: string;
       vm: string;
       host: string;
+      /** The VM's OS login user (`cf/ssh-user`), already validated by the caller. */
+      sshUser: string;
       principal: string;
       cols: number;
       rows: number;
@@ -160,7 +162,7 @@ export function createTerminals(logger: LoggerService) {
             'UserKnownHostsFile=/dev/null',
             '-o',
             'LogLevel=ERROR',
-            `ubuntu@${input.host}`,
+            `${input.sshUser}@${input.host}`,
           ],
           {
             name: 'xterm-256color',

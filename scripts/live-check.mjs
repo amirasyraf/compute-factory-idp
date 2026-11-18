@@ -27,9 +27,9 @@ try {
   ).toBeVisible();
   console.log(`SIGN-IN PASS: ${user}`);
 
-  // Real vm-sizes endpoint: sizes.json from GitHub plus live EC2 specs.
+  // Real vm-sizes endpoint: AWS sizes.json from GitHub plus live EC2 specs.
   const sizesResponse = page.waitForResponse(response =>
-    response.url().endsWith('/api/vm-sizes/sizes'),
+    response.url().includes('/api/vm-sizes/sizes'),
   );
   await page.goto(`${base}/create/templates/default/vm-request`);
   const sizes = await (await sizesResponse).json();
@@ -56,10 +56,10 @@ try {
 
   // Advanced picker: the real region catalog from AWS (x86_64 types offered here).
   const catalogResponse = page.waitForResponse(response =>
-    response.url().endsWith('/api/vm-sizes/instance-types'),
+    response.url().includes('/api/vm-sizes/instance-types'),
   );
   await page
-    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
     .click();
   const catalog = await (await catalogResponse).json();
   if (!Array.isArray(catalog.types) || catalog.types.length < 50)
@@ -69,7 +69,7 @@ try {
         300,
       )}`,
     );
-  const types = page.getByRole('table', { name: 'EC2 instance types' });
+  const types = page.getByRole('table', { name: 'AWS instance types' });
   await expect(types.getByRole('radio', { name: 't3.micro' })).toBeVisible();
   const demoOn = (await page.getByText(/Demo mode is on: only/).count()) > 0;
   const blocked = catalog.types.find(

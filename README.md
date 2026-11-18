@@ -26,7 +26,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     When a refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
   - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Modify
     replaces the software list, so unchecked catalog software is uninstalled.
-    Tags (`cost_center`, `project_code` and custom tags, shown as one AWS tags line) are self-reported,
+    Tags (`cost_center`, `project_code` and custom tags, shown as one cloud tags line) are self-reported,
     not organizational billing authorization. The request form's `VmTagsEditor` field
     (`packages/app/src/VmTagsEditor.tsx`) is one key/value table with fixed, required `cost_center` and
     `project_code` rows and optional extra tags; `/api/vms/requests` rejects requests without them.
@@ -47,8 +47,18 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   banners); `global.css` sets BUI tokens, self-hosted fonts and browser surfaces. Dark mode is disabled
   with `theme:app/dark: false`.
 - `packages/app/src/modules/nav/`: overrides `app/layout` to put the nav in a top bar instead of a
-  sidebar, and supplies that bar through `NavContentBlueprint` (Home, Resources, Create, Search,
-  search modal, settings and the signed-in user).
+  sidebar, and supplies that bar through `NavContentBlueprint` (Home, Resources, Launch, Search,
+  search modal, settings and the signed-in user). The stock template list (`page:scaffolder`,
+  `/create`) is no longer in the bar; its routes still work.
+- `packages/app/src/launch/`: the **Launch** page (`page:launch`, `/launch`). The IDP offers products,
+  not only VMs: product cards are Scaffolder templates tagged `product` (name from the `cf/product`
+  annotation, else the title). A product with `cf/launch-flow: platform-image` continues to platform
+  cards (`/launch/<template>`, from `GET /api/vm-sizes/platforms`; vSphere is a disabled "Coming soon"
+  card) and image cards (`/launch/<template>/<platform>`: radio, OS name, version dropdown; the only
+  image is preselected), then **Continue** opens the template with
+  `?formData={"compute":{"platform","os"}}`. Other products open their template directly. Each step
+  has its own URL, so Back works; the step trail links to earlier steps. Home's and Resources'
+  Request VM buttons open the VM's platform step. The version is shown but not stored yet.
 - `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` layout that replaces the widget grid
   with the team's VMs: status counts as filters, and each VM's pipeline line and next action
   (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
@@ -58,7 +68,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   <stage>", "Modifying · <stage>", "Re-applying configuration · <stage>", "Starting"/"Stopping"/
   "Rebooting", "Updating OS", "Destroying", a "· retrying" suffix while a stage waits to retry, and
   "Failed at <stage>" / "<Action> failed" / "Needs attention" on failure. Otherwise the summary's
-  health check decides: "Running", "Stopped", "Not found in AWS" (Home has a Stopped filter). The time shown is
+  health check decides: "Running", "Stopped", "Instance not found" (Home has a Stopped filter). The time shown is
   absolute and labelled: "Ready since …" from `cf/ready-at`, otherwise "Requested …".
   Home fills the available content width, matching Resources, with 20px horizontal gutters
   (16px at or below 760px); its action header and count strip are not capped on wide screens.
@@ -93,16 +103,20 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   health check shows cannot work (for example Reboot on a stopped VM).
 - **Browser terminal** (`plugins/cf-backend/src/terminal.ts`, `plugins/vm-status/src/VmTerminal.tsx`,
   CONTRACTS.md §8.4): `POST /api/vms/terminal` signs a fresh key with the SSH CA for 5 minutes (principal
-  of the VM's team, key ID `idp-terminal:<user>`) and runs the system `ssh` in a PTY (`node-pty`, built
+  of the VM's team, key ID `idp-terminal:<user>`) and runs the system `ssh` as the VM's `cf/ssh-user` in a PTY (`node-pty`, built
   in the image; on macOS the prebuilt `spawn-helper` may need `chmod +x` for local runs). The xterm.js
   dialog posts keystrokes and long-polls output over plain HTTP. Two sessions per user, 15-minute idle
   and 90-second orphan timeouts, open/close logged; production only (`demoAutomation`).
 - **VM health check** (`plugins/cf-backend/src/observed.ts`, CONTRACTS.md §8.3): only where
   `computeFactory.demoAutomation` is on, a 30-second scheduled task (and a scan after each finished
-  day-2 run) reads `ec2:DescribeInstances` and `ec2:DescribeInstanceStatus` for `cf:poc=true`
-  instances with the host role (infra policy `observe-vms`, read-only) and keeps the result in memory:
-  state, status checks, type, public IP, request ID and team per `cf:vm` tag. `GET /observed/:name`
-  and `/summary` expose it team-scoped. Locally it is off (`enabled: false`).
+  day-2 run) scans every platform and keeps each platform's result in memory separately (a failing
+  cloud keeps its last result): state, status checks, type, public IP, request ID and team per `cf:vm`
+  tag, plus `platform`. AWS: `ec2:DescribeInstances`/`DescribeInstanceStatus` for `cf:poc=true`
+  instances with the host role (infra policy `observe-vms`). Azure: ARM VM list (with power state),
+  public IPs and Resource Health with the Reader principal (`plugins/cf-backend/src/azure.ts`;
+  credential from Secrets Manager `AZURE_READER_SECRET_ID`, `@azure/identity` certificate auth, plain
+  `fetch` to ARM). Freshness and refusals use the VM's own platform (from its spec). `GET
+/observed/:name` and `/summary` expose it team-scoped. Locally it is off (`enabled: false`).
 - `packages/app/src/DemoModePanel.tsx`: Home's demo-mode status, per-account usage, expiry countdowns
   and admin-only global toggle with destructive confirmation. Membership in `platform-admins` controls
   access; the roster lives only in `catalog/org.yaml`.
@@ -123,24 +137,38 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
   reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
   `App.tsx` and this file.
-- **VM sizes and instance types** (`plugins/cf-backend/src/vmSizes.ts`,
-  `packages/app/src/VmComputePicker.tsx`, `plugins/vm-status/src/vmSizes.ts`), signed-in users only:
-  - `GET /api/vm-sizes/sizes`: the platform's `terraform/platforms/aws/sizes.json` (XS-L, read from GitHub
-    `main`, cached 5 minutes, last good copy kept during outages) with vCPU, memory, architecture and
-    network from `ec2:DescribeInstanceTypes` (cached 1 hour). Without AWS access it returns an `error`
-    and types without specs.
-  - `GET /api/vm-sizes/instance-types`: every x86_64, EBS-backed instance type offered in the region
-    (`DescribeInstanceTypeOfferings` + `DescribeInstanceTypes`, `mac*` excluded), with family, category,
-    generation, GPUs and bare-metal flag. Cached 1 hour; the last good list is kept on AWS errors.
-  - The platform template's `ui:field: VmComputePicker` on `compute` renders platform/OS, size **cards**
-    (size, instance type, vCPU, memory, network, CPU) and a collapsed **Advanced** picker: category tabs
-    with counts, rows grouped by family, search, family/min vCPU/min memory filters, a
-    current-generation toggle and sortable type/vCPU/memory columns. It submits exactly one of `size` or
+- **Platforms, VM sizes and instance types** (`plugins/cf-backend/src/{platforms,vmSizes,azure}.ts`,
+  `packages/app/src/VmComputePicker.tsx`, `plugins/vm-status/src/vmSizes.ts`), signed-in users only;
+  CONTRACTS.md §10a:
+  - Each platform's `terraform/platforms/<p>/{platform.json,sizes.json}` is read from the platform repo's
+    `main` through the GitHub API (cached 5 minutes, last good copy kept during outages). `PLATFORMS`
+    (`aws`, `azure`) is the list the IDP can read specs and health for; `COMING_SOON` adds vSphere.
+  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions) and tag
+    rules per platform, for Launch and the tags editor.
+  - `GET /api/vm-sizes/sizes?platform=<p>` (default `aws`): XS-L with vCPU, memory, architecture and
+    network. AWS from `ec2:DescribeInstanceTypes` (cached 1 hour); Azure from the Resource SKUs API,
+    with `quotaOk`. Without cloud access it returns an `error` and types without specs.
+  - `GET /api/vm-sizes/instance-types?platform=<p>`: AWS every x86_64, EBS-backed type offered in the
+    region (`DescribeInstanceTypeOfferings` + `DescribeInstanceTypes`, `mac*` excluded). Azure every VM
+    size without a location restriction that boots the x64 Gen2 image, categorized by series letter;
+    Azure has no generation flag, so every size counts as current and the toggle is hidden. `quotaOk`
+    compares free family and regional vCPU quota (Compute usages, cached 5 minutes) with the size's
+    vCPUs; sizes over quota are shown greyed out as "Over vCPU quota" (B-series has no quota in this
+    subscription and the region allows 10 vCPUs). Cached 1 hour; the last good list is kept on errors.
+  - The platform template's `ui:field: VmComputePicker` on `compute` shows the platform and image chosen
+    on Launch with a **Change** link (not on Modify: `ui:options.locked`), size **cards** (size,
+    instance type, vCPU, memory, network, CPU) and a collapsed **Advanced** picker: category tabs with
+    counts, rows grouped by family, search, family/min vCPU/min memory filters, a current-generation
+    toggle (AWS) and sortable type/vCPU/memory columns. It submits exactly one of `size` or
     `instanceType` and preselects `S` (the schema has no `size` default, which the form would otherwise
     re-add beside an instance type). `VmSizePicker` (cards only, on a `size` string) stays registered for
     the earlier template revision.
-  - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes` (`t3.micro`–`t3.large`); while it is on,
-    other types are greyed out and unselectable, and `/api/vms/requests` and Modify reject them (403).
+  - `VmTagsEditor` ("Cloud tags") marks keys reserved by the chosen platform (`reservedTagPrefixes`) or
+    containing its forbidden characters (Azure `<>%&\?/`); submit-time validation applies every
+    platform's rules. The platform's `spec.py` is authoritative.
+  - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes`: every platform's `sizes.json` values;
+    while it is on, other types are greyed out and unselectable, and `/api/vms/requests` and Modify
+    reject them (403; 503 while the size files cannot be read).
   - The home row, VM header and VM card show the launched type from `cf/instance-type`, else the
     requested `instanceType` ("Custom · …") or the type the size maps to now. Home's size badge shows the
     size (`XS`…`L`) or `◆` for a custom type. The Modify form reuses `VmComputePicker`.
@@ -375,7 +403,9 @@ GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
 SQLite is in-memory; local catalog state is disposable. File locations in the
 base config are relative to `packages/backend`. Stop with Ctrl-C. Do not store
 the GitHub token in a file. Signing locally additionally requires `AWS_REGION`,
-`SSH_CA_SECRET_ID` and AWS default-chain access to the secret.
+`SSH_CA_SECRET_ID` and AWS default-chain access to the secret. Azure specs and the Azure picker
+additionally need `AZURE_READER_SECRET_ID=compute-factory/azure-reader` and access to that secret;
+without it they return "Azure is not configured" errors.
 
 ## Checks
 
@@ -406,20 +436,22 @@ data alone does not verify a real VM run. The task fixture serves `/events` as a
 fails if the page opens `/eventstream`. Against a built (hashed) frontend it also simulates a deploy
 and checks that the new-version banner appears; on the dev server that check is skipped.
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
-frontend without signing in, dispatching a workflow or changing backend state.
+frontend without signing in, dispatching a workflow or changing backend state. It also walks
+Launch → Virtual machine → Azure (vSphere "Coming soon") → Ubuntu → the prefilled form, with Azure
+sizes, a quota-blocked size and Azure tag rules.
 Set `WORKFLOW_UI_SCREENSHOTS` to a temporary directory to capture run states, entity cards and lists
 at 1440px and 390px widths during the same fixture smoke. Inspect the images, then delete the directory.
 `scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's
-gitignored `.poc-passwords`) and checks, read-only, the request form's live instance types and AWS
+gitignored `.poc-passwords`) and checks, read-only, the request form's live AWS instance types and
 specs, that the newest own task page receives events by long polling, and that the newest visible VM
 run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy.
 
 ## Deploy
 
-Copy `deploy/.env.example` to a gitignored file and fill the seven keys only:
+Copy `deploy/.env.example` to a gitignored file and fill the eight keys only:
 
 `IDP_DOMAIN`, `IDP_USERS_B64`, `GITHUB_TOKEN`,
-`POSTGRES_PASSWORD`, `BACKSTAGE_TOKEN`, `AWS_REGION`, `SSH_CA_SECRET_ID`.
+`POSTGRES_PASSWORD`, `BACKSTAGE_TOKEN`, `AWS_REGION`, `SSH_CA_SECRET_ID`, `AZURE_READER_SECRET_ID`.
 
 ```sh
 ./deploy/deploy.sh <host> <env-file>
@@ -445,7 +477,8 @@ First deploy prerequisites owned by the orchestrator:
 - Integration PAT: private platform repo Contents read and Actions read/write.
   The IDP org/cert template is read from packaged files, not via GitHub.
 - DNS points directly to the host; inbound TCP 80/443 for Caddy TLS.
-- EC2 role can read only `compute-factory/ssh-ca`; IMDSv2 hop limit 2 for Docker.
+- EC2 role can read only the secrets `compute-factory/ssh-ca` and `compute-factory/azure-reader`
+  (plus read-only EC2 describe calls); IMDSv2 hop limit 2 for Docker.
 - Infra-generated Postgres password/static token; platform workflow secret
   `BACKSTAGE_TOKEN` matches the runtime value. External access is restricted to
   the `catalog` and `vms` plugins using the current `backend.auth.externalAccess` shape.

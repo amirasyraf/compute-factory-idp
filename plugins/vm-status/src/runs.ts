@@ -59,12 +59,13 @@ export type RunView = {
   stages: StageView[];
 };
 
-/** The VM's instance as the IDP health check last saw it in AWS. */
+/** The VM's instance as the IDP health check last saw it in its cloud (`platform`). */
 export type ObservedVm = {
   instanceId: string;
   state: string; // pending | running | stopping | stopped | shutting-down
   health: 'ok' | 'impaired' | 'initializing' | 'unknown' | null;
   instanceType: string | null;
+  platform?: string;
   publicIp: string | null;
   requestId: string | null;
   team: string | null;

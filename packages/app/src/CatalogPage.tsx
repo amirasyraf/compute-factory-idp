@@ -28,9 +28,9 @@ import {
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
 
-const REQUEST_VM = '/create/templates/default/vm-request';
+const REQUEST_VM = '/launch/vm-request';
 const RunsContext = createContext<Record<string, RunView>>({});
-// Health check per VM name: absent = not known, null = no instance found in AWS.
+// Health check per VM name: absent = not known, null = no instance found in the VM's cloud.
 const ObservedContext = createContext<Record<string, ObservedVm | null>>({});
 const observedOf = (map: Record<string, ObservedVm | null>, name: string) =>
   name in map ? map[name] : undefined;

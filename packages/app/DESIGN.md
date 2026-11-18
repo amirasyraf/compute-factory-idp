@@ -301,7 +301,7 @@ Overall VM state and process state are separate concepts:
 | `building`   | `provisioning` or `frying` | Building · running station, or Building; Provisioning when provisioning has no running station; blue. Home filter calls this In progress. |
 | `failed`     | `failed`                   | Failed at the first failed station, otherwise Failed; red marker and darker red text.                                                     |
 | `destroying` | `destroying`               | Destroying; grey marker and retired line.                                                                                                 |
-| `stopped`    | `ready` + health check `stopped` | Stopped; grey. Home filter Stopped. A `ready` VM with a running instance reads Running; one with no instance, Not found in AWS (red). |
+| `stopped`    | `ready` + health check `stopped` | Stopped; grey. Home filter Stopped. A `ready` VM with a running instance reads Running; one with no instance, Instance not found (red). |
 | `other`      | Anything else or absent    | Capitalized raw status, otherwise Unknown; grey. No dedicated home filter.                                                                |
 
 Attention helpers choose the first failed stage before a running/retrying stage.
@@ -312,7 +312,7 @@ Building · <stage>, modify is Modifying · <stage>, re-apply is Re-applying con
 Destroying. A retrying stage adds · retrying. A failed run names Failed at <stage> (power and
 OS update: Stop failed, OS update failed…), or Needs attention when the failed stage is not
 known. After a successful or cancelled day-2 run the label comes from the health check
-(Running, Running · status checks failing, Stopped, Stopping, Starting, Not found in AWS),
+(Running, Running · status checks failing, Stopped, Stopping, Starting, Instance not found),
 or Ready when no health check is available; cancelled provision/destroy runs name the
 cancelled operation. Destroyed is never inferred from
 success alone. Color/filter state remains separate from this human wording.
@@ -355,10 +355,18 @@ team-only filter; administrators can see all VMs.
 ### Navigation, Resources and VM pages
 
 The top bar combines a three-station blue SVG mark and wordmark, Home / Resources /
-Create / Search links, a button opening the stock search modal, settings and an
+Launch / Search links, a button opening the stock search modal, settings and an
 initials avatar. The apparent search field is a trigger, not an inline text input.
 Active navigation has an ink label and blue underline. Avatar access goes to
 settings, including when the separate settings icon is hidden.
+
+Launch is a card flow in the same page shell as Resources (32px title, muted subtitle, a step
+trail "Product › Platform › Image › Configure" whose earlier steps are links): product cards, then
+platform cards (unavailable platforms dimmed with a grey "Coming soon" pill), then image cards
+modelled on a distribution picker: radio and OS name, a full-width version select, no footer; the
+selected card gets the blue border and a pale blue fill. Product and platform cards advance on
+click; the image step has a blue **Continue** button. The form that follows shows the chosen
+platform and image in a bordered strip with a **Change** link instead of dropdowns.
 
 Resources owns its title/action shell but composes stock catalog filters, table,
 search, sorting and pagination. Only a nonempty all-VM result set gets Name,

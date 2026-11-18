@@ -16,6 +16,12 @@ import {
   initializeOrchestrator,
 } from './orchestrator';
 import { createObserver } from './observed';
+import {
+  allowsInstanceType,
+  loadPlatform,
+  platformLabel,
+  validPlatform,
+} from './platforms';
 import { TerminalLimit, createTerminals } from './terminal';
 
 const OPERATIONS: Record<string, RunKind> = {
@@ -40,12 +46,15 @@ const record = (value: unknown): Record<string, any> =>
     ? (value as Record<string, any>)
     : {};
 
-/** The requested compute, or undefined when malformed. Exactly one of size or instanceType. */
+/**
+ * The requested compute, or undefined when malformed. Exactly one of size or instanceType; the
+ * instance type is checked against the platform's own pattern later.
+ */
 function parseCompute(value: unknown) {
   const compute = record(value);
   const { platform, os, size, instanceType } = compute;
   if (
-    typeof platform !== 'string' ||
+    !validPlatform(platform) ||
     typeof os !== 'string' ||
     Object.keys(compute).some(
       key => !['platform', 'os', 'size', 'instanceType'].includes(key),
@@ -55,13 +64,19 @@ function parseCompute(value: unknown) {
       (typeof size !== 'string' || !/^[A-Z]{1,3}$/.test(size))) ||
     (instanceType !== undefined &&
       (typeof instanceType !== 'string' ||
-        !/^[a-z][a-z0-9-]*\.[a-z0-9]+$/.test(instanceType)))
+        !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(instanceType)))
   )
     return undefined;
   return size !== undefined
     ? { platform, os, size: size as string }
     : { platform, os, instanceType: instanceType as string };
 }
+
+/** The VM entity's `spec.compute.platform`; inventory predating Azure is AWS. */
+const platformOf = (entity: { spec?: Record<string, any> }) => {
+  const platform = record(record(entity.spec).compute).platform;
+  return validPlatform(platform) ? platform : 'aws';
+};
 
 const teamsOf = (refs: string[]) =>
   refs
@@ -126,7 +141,7 @@ export const vmsPlugin = createBackendPlugin({
           queue = result.catch(() => {});
           return result;
         }
-        // The health check reads EC2 only where VM automation runs (production).
+        // The health check reads the clouds only where VM automation runs (production).
         const observer = automation ? createObserver(logger) : undefined;
         // The terminal reaches real VMs with a CA-signed key: production only, like automation.
         const terminals = automation ? createTerminals(logger) : undefined;
@@ -349,11 +364,28 @@ export const vmsPlugin = createBackendPlugin({
                 });
                 return;
               }
-              if (!(await vmDemo.allowsInstanceType(compute.instanceType))) {
-                res.status(403).json({
-                  error:
-                    'Demo mode allows only t3.micro to t3.large; pick one of those or a size.',
-                });
+              if (compute.instanceType !== undefined) {
+                let platform;
+                try {
+                  platform = await loadPlatform(compute.platform, logger);
+                } catch (error) {
+                  res.status(503).json({
+                    error: `Platform definition unavailable: ${message(error)}`,
+                  });
+                  return;
+                }
+                if (!allowsInstanceType(platform, compute.instanceType)) {
+                  res.status(400).json({
+                    error: `${compute.instanceType} is not a ${platform.label} instance type`,
+                  });
+                  return;
+                }
+              }
+              const refusal = await vmDemo.refuseInstanceType(
+                compute.instanceType,
+              );
+              if (refusal) {
+                send(res, refusal);
                 return;
               }
               params = {
@@ -372,20 +404,25 @@ export const vmsPlugin = createBackendPlugin({
                 },
               };
             else if (kind === 'power') params = { action: operation };
-            // Refuse what the health check already shows cannot work (a repeated request
-            // returns its run instead).
-            const observedAt = Date.parse(observer?.status().checkedAt ?? '');
+            // Refuse what the VM platform's health check already shows cannot work (a
+            // repeated request returns its run instead).
+            const platform = platformOf(entity);
+            const observedAt = Date.parse(
+              observer?.status(platform).checkedAt ?? '',
+            );
             if (
               !repeated &&
               operation !== 'destroy' &&
               observer &&
               Date.now() - observedAt < OBSERVED_FRESH_MS
             ) {
-              const seen = observer.get(ref.name);
-              const instance = seen?.requestId === requestId ? seen : null;
+              const instance = observer.get(ref.name, requestId);
               let refusal: string | undefined;
               if (!instance)
-                refusal = 'No instance for this VM was found in AWS';
+                refusal = `No instance for this VM was found in ${await platformLabel(
+                  platform,
+                  logger,
+                )}`;
               else if (operation === 'start') {
                 if (instance.state === 'running')
                   refusal = 'The VM is already running';
@@ -462,18 +499,30 @@ export const vmsPlugin = createBackendPlugin({
               res.status(found.status).json({ error: found.error });
               return;
             }
-            // Connect to the address AWS reports for this incarnation (inventory can lag a console start).
-            const seen = observer?.get(name);
-            const instance = seen?.requestId === found.requestId ? seen : null;
+            // Connect to the address the cloud reports for this incarnation (inventory can lag
+            // a console start); freshness is that of the VM's own platform.
+            const platform = platformOf(found.entity);
+            const instance = observer?.get(name, found.requestId) ?? null;
             const fresh =
-              Date.now() - Date.parse(observer?.status().checkedAt ?? '') <
+              Date.now() -
+                Date.parse(observer?.status(platform).checkedAt ?? '') <
               OBSERVED_FRESH_MS;
             if (fresh && instance?.state !== 'running') {
               res.status(409).json({
                 error: instance
                   ? `The VM is ${instance.state}; start it first`
-                  : 'No instance for this VM was found in AWS',
+                  : `No instance for this VM was found in ${await platformLabel(
+                      platform,
+                      logger,
+                    )}`,
               });
+              return;
+            }
+            const sshUser = found.entity.metadata.annotations?.['cf/ssh-user'];
+            if (!sshUser || !/^[a-z_][a-z0-9_-]{0,31}$/.test(sshUser)) {
+              res
+                .status(409)
+                .json({ error: 'The VM has no valid SSH user (cf/ssh-user)' });
               return;
             }
             const host =
@@ -490,6 +539,7 @@ export const vmsPlugin = createBackendPlugin({
                 user: info.user,
                 vm: name,
                 host,
+                sshUser,
                 // The VM trusts team-<owner> and team-platform-admins (CONTRACTS.md §3).
                 principal: info.teams.includes(found.team)
                   ? `team-${found.team}`
@@ -497,7 +547,7 @@ export const vmsPlugin = createBackendPlugin({
                 cols,
                 rows,
               });
-              res.json({ ...session, host, user: 'ubuntu' });
+              res.json({ ...session, host, user: sshUser });
             } catch (error) {
               if (error instanceof TerminalLimit)
                 res.status(429).json({ error: error.message });
@@ -554,10 +604,14 @@ export const vmsPlugin = createBackendPlugin({
         );
 
         // Latest health check of one VM. Visible to the VM's team (instance tag cf:team) and admins.
+        // `?platform=` (the entity's spec.compute.platform) selects that platform's scan status.
         router.get(
           '/observed/:name',
           route(async (req, res) => {
             const info = await caller(req);
+            const platform = validPlatform(req.query.platform)
+              ? req.query.platform
+              : undefined;
             const seen = observer?.get(req.params.name) ?? null;
             const visible =
               seen && (info.admin || info.teams.includes(seen.team ?? ''))
@@ -565,7 +619,10 @@ export const vmsPlugin = createBackendPlugin({
                 : null;
             res.json({
               enabled: Boolean(observer),
-              ...(observer?.status() ?? { checkedAt: null, error: null }),
+              ...(observer?.status(platform) ?? {
+                checkedAt: null,
+                error: null,
+              }),
               vm: visible,
             });
           }),
@@ -618,17 +675,27 @@ export const vmsPlugin = createBackendPlugin({
               allowed(info, run),
             );
             const health = observer?.status();
+            const platforms = observer
+              ? await orchestrator.platforms(runs.map(run => run.request_id))
+              : new Map<string, string>();
             res.json({
               observedAt: health?.checkedAt ?? null,
               observedError: health?.error ?? null,
               vms: await Promise.all(
                 runs.map(async run => {
-                  const seen = observer?.get(run.name);
+                  // Only the instance of this VM incarnation. `observed` is absent (not known)
+                  // until the VM's platform has completed a scan; null = no instance there.
+                  const seen = observer?.get(run.name, run.request_id) ?? null;
+                  const platform =
+                    seen?.platform ?? (platforms.get(run.request_id) || 'aws');
+                  const known =
+                    seen || observer?.status(platform).checkedAt
+                      ? { observed: seen }
+                      : {};
                   return {
                     name: run.name,
                     latest: await orchestrator.view(run, true),
-                    // Only the instance of this VM incarnation.
-                    observed: seen?.requestId === run.request_id ? seen : null,
+                    ...known,
                   };
                 }),
               ),

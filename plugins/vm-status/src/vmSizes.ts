@@ -12,13 +12,30 @@ export type InstanceSpecs = {
   architectures: string[];
   network: string | null;
   burstable: boolean;
+  /** Enough free vCPU quota to launch it now; null = not known (AWS). */
+  quotaOk?: boolean | null;
 };
 export type VmSize = {
   size: string;
   instanceType: string;
   specs: InstanceSpecs | null;
 };
-export type VmSizes = { sizes: VmSize[]; error: string | null };
+export type VmSizes = {
+  platform?: string;
+  label?: string;
+  sizes: VmSize[];
+  error: string | null;
+};
+/** A platform of the platform repo (`terraform/platforms/<id>`), or a "Coming soon" one. */
+export type PlatformInfo = {
+  id: string;
+  label: string;
+  available: boolean;
+  os: { id: string; label: string; versions: string[] }[];
+  reservedTagPrefixes: string[];
+  forbiddenTagKeyCharacters: string;
+  error: string | null;
+};
 export type CatalogInstanceType = InstanceSpecs & {
   type: string;
   family: string;
@@ -86,21 +103,62 @@ const catalogFallback = (error: Error): InstanceTypeCatalog => ({
   error: `Instance types unavailable: ${error.message}`,
 });
 const demoFallback = () => ({ enabled: false, instanceTypes: [] });
+const platformsFallback = () => ({ platforms: [] as PlatformInfo[] });
+const query = (platform: string) => `?platform=${encodeURIComponent(platform)}`;
 
-/** Size -> instance type (platform `sizes.json`) with live AWS specs; undefined while loading. */
-export function useVmSizes(): VmSizes | undefined {
-  return useCachedJson('vm-sizes', '/sizes', true, sizesFallback);
+/** Size -> instance type (that platform's `sizes.json`) with live specs; undefined while loading. */
+export function useVmSizes(platform = 'aws'): VmSizes | undefined {
+  return useCachedJson(
+    'vm-sizes',
+    `/sizes${query(platform)}`,
+    true,
+    sizesFallback,
+  );
 }
 
-/** Every x86_64 instance type offered in the region, with specs. Fetched only when `enabled`. */
+/** Every x86_64 instance type the platform offers in its region, with specs. Fetched only when `enabled`. */
 export function useInstanceTypeCatalog(
   enabled = true,
+  platform = 'aws',
 ): InstanceTypeCatalog | undefined {
   const value = useCachedJson<{
     types?: CatalogInstanceType[];
     error?: string | null;
-  }>('vm-sizes', '/instance-types', enabled, catalogFallback);
+  }>('vm-sizes', `/instance-types${query(platform)}`, enabled, catalogFallback);
   return value && { types: value.types ?? [], error: value.error ?? null };
+}
+
+/** Every platform with its images, including "Coming soon" ones; undefined while loading. */
+export function usePlatforms(): PlatformInfo[] | undefined {
+  return useCachedJson('vm-sizes', '/platforms', true, platformsFallback)
+    ?.platforms;
+}
+
+const fallbackLabels: Record<string, string> = { aws: 'AWS', azure: 'Azure' };
+/** Display name of a platform, e.g. "Azure". */
+export function platformLabel(
+  id: string | undefined,
+  platforms: PlatformInfo[] | undefined,
+): string {
+  if (!id) return 'the cloud';
+  return (
+    platforms?.find(item => item.id === id)?.label ??
+    fallbackLabels[id] ??
+    id.toUpperCase()
+  );
+}
+/** Display name of an OS image, e.g. "Ubuntu". */
+export function osLabel(
+  platform: string | undefined,
+  os: string | undefined,
+  platforms: PlatformInfo[] | undefined,
+): string {
+  if (!os) return '—';
+  return (
+    platforms
+      ?.find(item => item.id === platform)
+      ?.os.find(item => item.id === os)?.label ?? os
+  );
 }
 
 export function useDemoRestriction(): DemoRestriction | undefined {
@@ -145,8 +203,10 @@ function compute(entity: Entity | undefined): Record<string, unknown> {
  * the region catalog, fetched only when such a VM is shown.
  */
 export function useVmSizeText(entity: Entity | undefined): string {
-  const sizes = useVmSizes();
   const spec = compute(entity);
+  const platform =
+    typeof spec.platform === 'string' && spec.platform ? spec.platform : 'aws';
+  const sizes = useVmSizes(platform);
   const size = typeof spec.size === 'string' ? spec.size : undefined;
   const requested =
     typeof spec.instanceType === 'string' ? spec.instanceType : undefined;
@@ -158,7 +218,10 @@ export function useVmSizeText(entity: Entity | undefined): string {
   const sizeSpecs = sizes?.sizes.find(
     item => item.instanceType === type,
   )?.specs;
-  const catalog = useInstanceTypeCatalog(Boolean(type && sizes && !sizeSpecs));
+  const catalog = useInstanceTypeCatalog(
+    Boolean(type && sizes && !sizeSpecs),
+    platform,
+  );
   const specs =
     sizeSpecs ?? catalog?.types.find(item => item.type === type) ?? null;
   const label = size ?? (requested ? 'Custom' : '—');

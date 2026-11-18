@@ -3,17 +3,10 @@ import { DatabaseService, LoggerService } from '@backstage/backend-plugin-api';
 import YAML from 'yaml';
 import { github, mapConcurrent, message } from './github';
 import { Orchestrator, Run, RunConflict } from './orchestrator';
+import { PLATFORMS, loadSizes } from './platforms';
 
 const limit = 3;
 const lifetime = 5 * 60 * 1000;
-// While demo mode is on, Advanced instance-type requests are limited to these (cost control).
-// Size letters are allowed: sizes.json maps XS-L to exactly these types.
-export const demoInstanceTypes = [
-  't3.micro',
-  't3.small',
-  't3.medium',
-  't3.large',
-];
 type Database = Awaited<ReturnType<DatabaseService['getClient']>>;
 type Mode = {
   id: number;
@@ -116,6 +109,16 @@ export function createDemo(options: {
   const getMode = async () =>
     (await db<Mode>('demo_settings').where({ id: 1 }).first())!;
   const getVms = () => db<Vm>('demo_vms').select();
+  // While demo mode is on, explicit instance types are limited to those some platform's
+  // sizes.json maps a size to (cost control); size letters are always allowed.
+  const demoInstanceTypes = async () =>
+    [
+      ...new Set(
+        (await Promise.all(PLATFORMS.map(id => loadSizes(id, logger)))).flatMap(
+          sizes => Object.values(sizes),
+        ),
+      ),
+    ].sort();
 
   // Immutable Git inventory (tree/blob SHAs) is authoritative, unlike the eventually consistent catalog.
   async function sync() {
@@ -322,7 +325,8 @@ export function createDemo(options: {
       isAdmin: info.admin,
       automationAvailable: automation,
       limit,
-      instanceTypes: demoInstanceTypes,
+      // Empty when the size files cannot be read: nothing explicit is allowed then.
+      instanceTypes: await demoInstanceTypes().catch(() => []),
       ttlSeconds: lifetime / 1000,
       ownedCount: all.filter(vm => vm.requested_by === info.user).length,
       lastScan,
@@ -487,20 +491,8 @@ export function createDemo(options: {
     if (await db<Vm>('demo_vms').where({ name }).first())
       return { status: 409, body: { error: 'VM name already reserved' } };
     const mode = await getMode();
-    const instanceType = spec.compute?.instanceType;
-    if (
-      mode.enabled &&
-      instanceType !== undefined &&
-      !demoInstanceTypes.includes(instanceType)
-    )
-      return {
-        status: 403,
-        body: {
-          error: `Demo mode allows only ${demoInstanceTypes.join(
-            ', ',
-          )}. Pick one of those or a size.`,
-        },
-      };
+    const refusal = await refuseInstanceType(spec.compute?.instanceType);
+    if (refusal) return refusal;
     const rows = await getVms();
     if (
       mode.enabled &&
@@ -562,14 +554,38 @@ export function createDemo(options: {
     }
   }
 
-  /** Demo mode limits explicit instance types (requests and Modify); sizes are always allowed. */
-  async function allowsInstanceType(instanceType: string | undefined) {
-    return (
-      instanceType === undefined ||
-      !(await getMode()).enabled ||
-      demoInstanceTypes.includes(instanceType)
-    );
+  /**
+   * Demo mode limits explicit instance types (requests and Modify); sizes are always allowed.
+   * Fails closed when the size files cannot be read. Null = allowed.
+   */
+  async function refuseInstanceType(
+    instanceType: unknown,
+  ): Promise<Reply | null> {
+    if (instanceType === undefined || !(await getMode()).enabled) return null;
+    let allowed: string[];
+    try {
+      allowed = await demoInstanceTypes();
+    } catch (error) {
+      return {
+        status: 503,
+        body: {
+          error: `Demo mode cannot check instance types right now; pick a size or try again (${message(
+            error,
+          )})`,
+        },
+      };
+    }
+    if (typeof instanceType === 'string' && allowed.includes(instanceType))
+      return null;
+    return {
+      status: 403,
+      body: {
+        error: `Demo mode allows only ${allowed.join(
+          ', ',
+        )}. Pick one of those or a size.`,
+      },
+    };
   }
 
-  return { sweep, state, settings, cleanupCheck, request, allowsInstanceType };
+  return { sweep, state, settings, cleanupCheck, request, refuseInstanceType };
 }

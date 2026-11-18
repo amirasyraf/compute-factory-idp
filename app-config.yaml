@@ -16,7 +16,7 @@ app:
             $not:
               kind: resource
               spec.type: vm
-    # Create lists only "Request a VM". Modify (vm-modify) opens prefilled from the VM page and
+    # The template list (/create, reached from Launch) shows only "Request a VM". Modify (vm-modify) opens prefilled from the VM page and
     # SSH certificate from the VM page and Home; their /create/templates/... URLs still work.
     - sub-page:scaffolder/templates:
         config:

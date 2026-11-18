@@ -11,7 +11,17 @@ let admin = false;
 const template = {
   apiVersion: 'scaffolder.backstage.io/v1beta3',
   kind: 'Template',
-  metadata: { name: 'vm-request', namespace: 'default', title: 'Request a VM' },
+  metadata: {
+    name: 'vm-request',
+    namespace: 'default',
+    title: 'Request a VM',
+    description: 'A team-owned server built from a golden image.',
+    tags: ['product'],
+    annotations: {
+      'cf/product': 'Virtual machine',
+      'cf/launch-flow': 'platform-image',
+    },
+  },
   spec: { type: 'vm', owner: 'group:default/alpha' },
 };
 const vm = {
@@ -202,6 +212,8 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.route('**/api/**', async route => {
     const path = new URL(route.request().url()).pathname;
+    const platform =
+      new URL(route.request().url()).searchParams.get('platform') ?? 'aws';
     let json = {};
     if (path.endsWith('/password/refresh')) {
       json = {
@@ -305,6 +317,100 @@ try {
       json = resources
         ? { items: listVms, totalItems: listVms.length, pageInfo: {} }
         : { items: [], totalItems: 0, pageInfo: {} };
+    } else if (path.endsWith('/vm-sizes/platforms')) {
+      const ubuntu = [{ id: 'ubuntu', label: 'Ubuntu', versions: ['26.04'] }];
+      const rules = (prefixes, chars) => ({
+        reservedTagPrefixes: prefixes,
+        forbiddenTagKeyCharacters: chars,
+        error: null,
+      });
+      json = {
+        platforms: [
+          {
+            id: 'aws',
+            label: 'AWS',
+            available: true,
+            os: ubuntu,
+            ...rules(['aws:'], ''),
+          },
+          {
+            id: 'azure',
+            label: 'Azure',
+            available: true,
+            os: ubuntu,
+            ...rules(['azure', 'microsoft', 'windows'], '<>%&\\?/'),
+          },
+          {
+            id: 'vsphere',
+            label: 'vSphere',
+            available: false,
+            os: [],
+            ...rules([], ''),
+          },
+        ],
+      };
+    } else if (path.endsWith('/vm-sizes/sizes') && platform === 'azure') {
+      const specs = (vcpus, gib, quotaOk) => ({
+        vcpus,
+        memoryMiB: gib * 1024,
+        architectures: ['x86_64'],
+        network: null,
+        burstable: false,
+        quotaOk,
+      });
+      json = {
+        platform: 'azure',
+        label: 'Azure',
+        sizes: [
+          {
+            size: 'XS',
+            instanceType: 'Standard_D2ls_v6',
+            specs: specs(2, 4, true),
+          },
+          {
+            size: 'S',
+            instanceType: 'Standard_D2s_v6',
+            specs: specs(2, 8, true),
+          },
+          {
+            size: 'M',
+            instanceType: 'Standard_D4ls_v6',
+            specs: specs(4, 8, true),
+          },
+          {
+            size: 'L',
+            instanceType: 'Standard_D4s_v6',
+            specs: specs(4, 16, false),
+          },
+        ],
+        error: null,
+      };
+    } else if (
+      path.endsWith('/vm-sizes/instance-types') &&
+      platform === 'azure'
+    ) {
+      const type = (name, family, vcpus, gib, quotaOk) => ({
+        type: name,
+        family,
+        category: 'General purpose',
+        currentGeneration: true,
+        bareMetal: false,
+        gpus: null,
+        vcpus,
+        memoryMiB: gib * 1024,
+        architectures: ['x86_64'],
+        network: null,
+        burstable: name.startsWith('Standard_B'),
+        quotaOk,
+      });
+      json = {
+        region: 'australiaeast',
+        types: [
+          type('Standard_B2s_v2', 'standardBsv2Family', 2, 8, false),
+          type('Standard_D2s_v6', 'StandardDsv6Family', 2, 8, true),
+          type('Standard_D4s_v6', 'StandardDsv6Family', 4, 16, true),
+        ],
+      };
     } else if (path.endsWith('/vm-sizes/sizes')) {
       const specs = memoryMiB => ({
         vcpus: 2,
@@ -486,7 +592,11 @@ try {
                   required: ['platform', 'os'],
                   'ui:field': 'VmComputePicker',
                   properties: {
-                    platform: { type: 'string', default: 'aws', enum: ['aws'] },
+                    platform: {
+                      type: 'string',
+                      default: 'aws',
+                      enum: ['aws', 'azure'],
+                    },
                     os: { type: 'string', default: 'ubuntu', enum: ['ubuntu'] },
                     size: {
                       title: 'Size',
@@ -528,6 +638,13 @@ try {
         return;
       }
       json = path.includes('/resource/') ? vm : template;
+    } else if (
+      path.endsWith('/entities') &&
+      /metadata\.tags=product/.test(
+        decodeURIComponent(new URL(route.request().url()).search),
+      )
+    ) {
+      json = [template];
     } else if (path.endsWith('/entities')) {
       json = listVms;
     }
@@ -1093,10 +1210,10 @@ try {
   await expect(card('L t3.large')).toHaveAttribute('aria-checked', 'true');
   await expect(card('S t3.small')).toHaveAttribute('aria-checked', 'false');
   // Advanced picker stays hidden until asked for.
-  const types = page.getByRole('table', { name: 'EC2 instance types' });
+  const types = page.getByRole('table', { name: 'AWS instance types' });
   await expect(types).toHaveCount(0);
   await page
-    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
     .click();
   await expect(types).toBeVisible();
   // Previous generation hidden by default; family grouping and category tabs.
@@ -1134,7 +1251,7 @@ try {
   demoOn = true;
   await page.reload();
   await page
-    .getByRole('button', { name: /Advanced: choose a specific EC2/ })
+    .getByRole('button', { name: /Advanced: choose a specific AWS/ })
     .click();
   await expect(types.getByRole('radio', { name: 'm7i.large' })).toBeDisabled();
   await expect(types.getByRole('radio', { name: 't3.micro' })).toBeEnabled();
@@ -1143,6 +1260,67 @@ try {
   assertNoErrors(errors);
   console.log(
     'VM SIZE + TAGS UI PASS: tags table with fixed required cost_center/project_code and optional rows; size cards XS-L with specs, hidden Advanced picker (categories, family groups, search, generation filter, selection, back to size), demo-mode restriction; VM card and home row show the launched type (fixture APIs)',
+  );
+  // Launch: product, platform and image cards, then the template with platform/OS prefilled.
+  await page.goto(`${base}/`);
+  await page.getByRole('link', { name: 'Launch', exact: true }).click();
+  await expect(page).toHaveURL(`${base}/launch`);
+  await expect(
+    page.getByRole('link', { name: 'Create', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole('heading', { name: 'Launch a product' }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: /Virtual machine/ }).click();
+  await expect(page).toHaveURL(`${base}/launch/vm-request`);
+  await expect(page.getByRole('button', { name: /vSphere/ })).toBeDisabled();
+  await expect(page.getByText('Coming soon')).toBeVisible();
+  await capture('launch-platform');
+  await page.getByRole('button', { name: /^Azure/ }).click();
+  await expect(page).toHaveURL(`${base}/launch/vm-request/azure`);
+  await expect(
+    page.getByRole('heading', { name: 'Choose your image' }),
+  ).toBeVisible();
+  await expect(page.getByRole('radio', { name: 'Ubuntu' })).toBeChecked();
+  await expect(page.getByText('Version 26.04')).toBeVisible();
+  await capture('launch-image');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page).toHaveURL(
+    /\/create\/templates\/default\/vm-request\?formData=/,
+  );
+  await expect(page.getByText('Azure', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Change' })).toHaveAttribute(
+    'href',
+    '/launch/vm-request/azure',
+  );
+  await expect(card('S Standard_D2s_v6')).toHaveAttribute(
+    'aria-checked',
+    'true',
+  );
+  await expect(card('L Standard_D4s_v6')).toBeDisabled();
+  await expect(page.getByText('Over vCPU quota').first()).toBeVisible();
+  await page
+    .getByRole('button', { name: /Advanced: choose a specific Azure/ })
+    .click();
+  const azureTypes = page.getByRole('table', { name: 'Azure instance types' });
+  await expect(
+    azureTypes.getByRole('radio', { name: 'Standard_B2s_v2' }),
+  ).toBeDisabled();
+  await expect(
+    azureTypes.getByRole('radio', { name: 'Standard_D4s_v6' }),
+  ).toBeEnabled();
+  await expect(page.getByText('Current generation only')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add tag' }).click();
+  await page.getByLabel('Tag 1 key').fill('azure-env');
+  await expect(page.getByText('Reserved key')).toBeVisible();
+  await page.getByLabel('Tag 1 key').fill('a/b');
+  await expect(page.getByText('"/" is not allowed in keys')).toBeVisible();
+  await page.getByLabel('Tag 1 key').fill('aws:x');
+  await expect(page.getByText('Reserved key')).toHaveCount(0);
+  await capture('launch-configure');
+  assertNoErrors(errors);
+  console.log(
+    'LAUNCH UI PASS: Launch nav, product → platform (vSphere coming soon) → image cards with version → template prefilled with Azure/Ubuntu; Azure sizes, quota-blocked size and advanced rows, Azure tag rules (fixture APIs)',
   );
   const wording = [
     [

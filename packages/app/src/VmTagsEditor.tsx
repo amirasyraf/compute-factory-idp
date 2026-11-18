@@ -12,6 +12,7 @@ import AddIcon from '@material-ui/icons/Add';
 import DeleteOutline from '@material-ui/icons/DeleteOutline';
 import type { FieldExtensionComponentProps } from '@backstage/plugin-scaffolder-react';
 import { createFormField } from '@backstage/plugin-scaffolder-react/alpha';
+import { PlatformInfo, usePlatforms } from '@internal/plugin-vm-status';
 
 type Tags = {
   costCenter?: string;
@@ -21,26 +22,53 @@ type Tags = {
 type Row = { key: string; value: string };
 
 const maxExtra = 40;
-// The platform derives these AWS tag keys from billing; users cannot set them as extra tags.
+// The platform derives these tag keys from billing; users cannot set them as extra tags.
 const fixed = [
   { field: 'costCenter', key: 'cost_center' },
   { field: 'projectCode', key: 'project_code' },
 ] as const;
+// Every platform's platform.json reservedTagPrefixes/forbiddenTagKeyCharacters, for submit-time
+// validation, which cannot load them; the row errors below use the chosen platform's own rules.
+// The platform repo's spec.py is the authoritative check.
+const anyPlatform = {
+  reservedTagPrefixes: ['aws:', 'azure', 'microsoft', 'windows'],
+  forbiddenTagKeyCharacters: '<>%&\\?/',
+};
+type TagRules = Pick<
+  PlatformInfo,
+  'reservedTagPrefixes' | 'forbiddenTagKeyCharacters'
+>;
 
-export function reservedTagKey(key: string): boolean {
+/** Why a tag key cannot be used on the platform, or undefined. */
+export function tagKeyProblem(
+  key: string,
+  rules: TagRules = anyPlatform,
+): string | undefined {
   const lower = key.toLowerCase();
-  return (
+  if (
     lower === 'name' ||
     fixed.some(item => item.key === lower) ||
-    ['cf:', 'aws:', 'billing:'].some(prefix => lower.startsWith(prefix))
+    ['cf:', 'billing:', ...rules.reservedTagPrefixes].some(prefix =>
+      lower.startsWith(prefix),
+    )
+  )
+    return 'Reserved key';
+  const bad = [...rules.forbiddenTagKeyCharacters].find(char =>
+    key.includes(char),
   );
+  return bad ? `"${bad}" is not allowed in keys` : undefined;
 }
 
-function rowError(row: Row, rows: Row[]): string | undefined {
+function rowError(
+  row: Row,
+  rows: Row[],
+  rules: TagRules | undefined,
+): string | undefined {
   const key = row.key.trim();
   if (!key) return row.value ? 'Key is required' : undefined;
   if (key.length > 128) return 'Key is longer than 128 characters';
-  if (reservedTagKey(key)) return 'Reserved key';
+  const problem = tagKeyProblem(key, rules);
+  if (problem) return problem;
   if (rows.filter(item => item.key.trim() === key).length > 1)
     return 'Duplicate key';
   if (row.value.length > 256) return 'Value is longer than 256 characters';
@@ -63,7 +91,8 @@ const useStyles = makeStyles(theme => ({
 }));
 
 /**
- * `ui:field: VmTagsEditor` on the vm-request template's `tags` object: one AWS tags table.
+ * `ui:field: VmTagsEditor` on the vm-request template's `tags` object: one cloud tags table,
+ * checked against the platform chosen in the form's `compute`.
  * `cost_center` and `project_code` are fixed keys with mandatory values; more tags are optional.
  */
 function VmTagsEditorField({
@@ -72,9 +101,14 @@ function VmTagsEditorField({
   schema,
   rawErrors,
   disabled,
+  formContext,
 }: FieldExtensionComponentProps<Tags>) {
   const classes = useStyles();
   const value: Tags = formData ?? {};
+  const platform = (
+    formContext?.formData as { compute?: { platform?: string } } | undefined
+  )?.compute?.platform;
+  const rules = usePlatforms()?.find(item => item.id === platform);
   const [rows, setRows] = useState<Row[]>(() =>
     Object.entries(value.extra ?? {}).map(([key, item]) => ({
       key,
@@ -101,7 +135,12 @@ function VmTagsEditorField({
           {schema.description}
         </Typography>
       )}
-      <Box className={classes.grid} mt={1.5} role="table" aria-label="AWS tags">
+      <Box
+        className={classes.grid}
+        mt={1.5}
+        role="table"
+        aria-label="Cloud tags"
+      >
         <span className={classes.head}>Key</span>
         <span className={classes.head}>Value</span>
         <span />
@@ -140,7 +179,7 @@ function VmTagsEditorField({
           ];
         })}
         {rows.map((row, index) => {
-          const error = rowError(row, rows);
+          const error = rowError(row, rows, rules);
           return [
             <TextField
               key={`row-${index}-key`}
@@ -220,7 +259,8 @@ export const VmTagsEditor = createFormField({
     if (keys.length > maxExtra)
       field.addError(`At most ${maxExtra} extra tags`);
     for (const key of keys) {
-      if (reservedTagKey(key)) field.addError(`Tag key "${key}" is reserved`);
+      const problem = tagKeyProblem(key);
+      if (problem) field.addError(`Tag key "${key}": ${problem}`);
       else if (key.length > 128) field.addError(`Tag key "${key}" is too long`);
     }
   },

@@ -15,7 +15,10 @@ import {
   ObservedVm,
   RunView,
   getVmConfiguration,
+  osLabel,
+  platformLabel,
   sizeBadge,
+  usePlatforms,
   useVmSizeText,
   vmColors,
   vmState,
@@ -29,7 +32,7 @@ import AddIcon from '@material-ui/icons/Add';
 import VpnKeyOutlined from '@material-ui/icons/VpnKeyOutlined';
 import { DemoModePanel } from '../../DemoModePanel';
 
-const REQUEST_VM = '/create/templates/default/vm-request';
+const REQUEST_VM = '/launch/vm-request';
 const SSH_CERT = '/create/templates/default/ssh-cert';
 
 type Filter =
@@ -297,7 +300,7 @@ type Row = {
   entity: Entity;
   state: VmState;
   run?: RunView;
-  /** Health check: undefined = not known, null = no instance found in AWS. */
+  /** Health check: undefined = not known, null = no instance found in the VM's cloud. */
   observed?: ObservedVm | null;
 };
 
@@ -311,6 +314,7 @@ function VmRow({ entity, state, run, observed }: Row) {
   const color = vmStateColor(state);
   const ip =
     observed === undefined ? annotations['cf/public-ip'] : observed?.publicIp;
+  // Every VM's inventory records its login user; the fallback covers only older entries.
   const user = annotations['cf/ssh-user'] || 'ubuntu';
   const runUrl = run ? `/vms/runs/${run.id}` : undefined;
   const namespace = entity.metadata.namespace ?? 'default';
@@ -319,7 +323,12 @@ function VmRow({ entity, state, run, observed }: Row) {
   const failedStage = run?.stages.find(
     stage => stage.status === 'failed' && stage.id !== 'finalize',
   );
-  const os = desired.os === 'ubuntu' ? 'Ubuntu' : desired.os;
+  const platforms = usePlatforms();
+  const os = `${osLabel(
+    desired.platform,
+    desired.os,
+    platforms,
+  )} on ${platformLabel(desired.platform, platforms)}`;
 
   let action = null;
   if (state === 'ready') {

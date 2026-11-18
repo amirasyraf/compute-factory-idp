@@ -133,7 +133,7 @@ const useStyles = makeStyles({
 
 const LABELS: Record<string, string> = {
   'page:catalog': 'Resources',
-  'page:scaffolder': 'Create',
+  'page:launch': 'Launch',
   'page:search': 'Search',
 };
 
@@ -181,7 +181,9 @@ function TopBar({ navItems }: NavContentComponentProps) {
   // Home is the brand link's destination as well as the first tab.
   navItems.take('page:home');
   navItems.take('page:user-settings');
-  const primary = ['page:catalog', 'page:scaffolder', 'page:search']
+  // Launch replaces the template list in the bar; /create still serves every template.
+  navItems.take('page:scaffolder');
+  const primary = ['page:catalog', 'page:launch', 'page:search']
     .map(id => ({ id, item: navItems.take(id) }))
     .filter(({ item }) => item);
   const rest = navItems.rest();

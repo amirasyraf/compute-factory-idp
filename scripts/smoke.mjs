@@ -339,7 +339,7 @@ try {
     throw new Error(`Direct user mock access: ${userAccess.status}`);
   const browser = await run('node', ['scripts/workflow-ui.mjs'], {
     env: { ...process.env, WORKFLOW_UI_URL: proxyUrl },
-    timeout: 90000,
+    timeout: 180000,
   });
   console.log(browser.stdout);
   console.log(

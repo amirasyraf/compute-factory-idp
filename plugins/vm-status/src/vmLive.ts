@@ -169,6 +169,7 @@ export function deriveVm(entity: Entity, live: VmLive) {
       (observed === undefined
         ? annotations['cf/public-ip']
         : observed?.publicIp) || '',
+    // Every VM's inventory records its login user; the fallback covers only older entries.
     user: annotations['cf/ssh-user'] || 'ubuntu',
   };
 }

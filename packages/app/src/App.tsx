@@ -19,6 +19,7 @@ import vmStatus from '@internal/plugin-vm-status';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import { navModule } from './modules/nav';
 import { homeModule } from './modules/home';
+import { launchPlugin } from './launch';
 import { CatalogKindFilter } from './CatalogKindFilter';
 import { CatalogPage } from './CatalogPage';
 import { cfLightTheme } from './theme/cfTheme';
@@ -41,15 +42,15 @@ const clientMonitor = AppRootElementBlueprint.make({
 // Scaffolder customisations; default fields, task UI, logs and controls are preserved.
 const scaffolder = scaffolderPlugin.withOverrides({
   extensions: [
-    // VM request compute field: size cards with live AWS specs and an Advanced
-    // instance-type picker (platform template `ui:field: VmComputePicker`).
+    // VM request compute field: the chosen platform/image, size cards with live specs and an
+    // Advanced instance-type picker (platform template `ui:field: VmComputePicker`).
     FormFieldBlueprint.make({
       name: 'vm-compute-picker',
       params: {
         field: () => import('./VmComputePicker').then(m => m.VmComputePicker),
       },
     }),
-    // One AWS tags table: fixed cost_center/project_code plus optional tags.
+    // One cloud tags table: fixed cost_center/project_code plus optional tags.
     FormFieldBlueprint.make({
       name: 'vm-tags-editor',
       params: {
@@ -138,6 +139,7 @@ export default createApp({
     userSettings,
     scaffolder,
     vmStatus,
+    launchPlugin,
     navModule,
     homeModule,
     createFrontendModule({
