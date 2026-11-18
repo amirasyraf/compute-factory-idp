@@ -165,6 +165,36 @@ export function useVmsApi() {
         close: (id: string) =>
           request<{}>(`/terminal/${encodeURIComponent(id)}`, 'DELETE'),
       },
+      /** Windows VMs: the team's shared login (every read is logged by the IDP). */
+      password: (name: string) =>
+        request<{ username: string; password: string }>(
+          `/password/${encodeURIComponent(name)}`,
+        ),
+      /** Browser remote desktop: Guacamole instructions over long-polled requests. */
+      rdp: {
+        open: (body: {
+          vm: string;
+          width: number;
+          height: number;
+          dpi: number;
+          timezone: string;
+        }) =>
+          request<{ id: string; host: string; user: string }>(
+            '/rdp',
+            'POST',
+            body,
+          ),
+        output: (id: string, after: number) =>
+          request<{ seq: number; data: string; closed: string | null }>(
+            `/rdp/${encodeURIComponent(id)}/output?after=${after}`,
+          ),
+        input: (id: string, data: string) =>
+          request<{}>(`/rdp/${encodeURIComponent(id)}/input`, 'POST', {
+            data,
+          }),
+        close: (id: string) =>
+          request<{}>(`/rdp/${encodeURIComponent(id)}`, 'DELETE'),
+      },
     };
   }, [discovery, fetchApi]);
 }

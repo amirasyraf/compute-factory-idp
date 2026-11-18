@@ -19,6 +19,8 @@ export type Platform = {
       galleryImages?: Record<string, string>;
       sshUser?: string;
       family?: string;
+      /** Smallest memory an instance type needs for this OS (Windows: 4096). */
+      minMemoryMiB?: number;
     }
   >;
   instanceTypePattern: RegExp;
@@ -56,6 +58,28 @@ export function imageVersions(platform: Platform, os: string): string[] {
       ).length === 1
     );
   });
+}
+
+/** The OS family (`linux`, `windows`) of a platform's OS; it selects sizes and software. */
+export function osFamily(platform: Platform, os: unknown): string | undefined {
+  if (
+    typeof os !== 'string' ||
+    !Object.prototype.hasOwnProperty.call(platform.os, os)
+  )
+    return undefined;
+  const family = platform.os[os]?.family;
+  return typeof family === 'string' && /^[a-z]+$/.test(family)
+    ? family
+    : undefined;
+}
+
+export function minMemoryMiB(platform: Platform, os: unknown): number {
+  const value =
+    typeof os === 'string' &&
+    Object.prototype.hasOwnProperty.call(platform.os, os)
+      ? platform.os[os]?.minMemoryMiB
+      : undefined;
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 /** Only when platform.json cannot be read. */
@@ -100,7 +124,10 @@ async function platformFile(
   logger: LoggerService,
 ): Promise<unknown> {
   if (!validPlatform(id)) throw new Error('Invalid platform');
-  const path = `terraform/platforms/${id}/${file}`;
+  return repoFile(`terraform/platforms/${id}/${file}`, logger);
+}
+
+async function repoFile(path: string, logger: LoggerService): Promise<unknown> {
   const cached = files.get(path);
   if (cached && Date.now() - cached.at < ttlMs) return cached.value;
   let load = loads.get(path);
@@ -166,23 +193,102 @@ export const allowsInstanceType = (platform: Platform, type: string) =>
   platform.instanceTypePattern.test(type) &&
   !platform.excludedInstanceTypePattern?.test(type);
 
-/** The platform's `sizes.json`: size letter -> instance type. */
+/** The platform's `sizes.json` for one OS family: size letter -> instance type. */
 export async function loadSizes(
   id: string,
   logger: LoggerService,
+  family: string,
 ): Promise<Record<string, string>> {
   const [platform, raw] = await Promise.all([
     loadPlatform(id, logger),
     platformFile(id, 'sizes.json', logger),
   ]);
-  const sizes = Object.entries(object(raw, 'sizes.json')).filter(
+  const map = object(raw, 'sizes.json');
+  const sizes = Object.entries(
+    object(
+      Object.prototype.hasOwnProperty.call(map, family) ? map[family] : {},
+      `sizes.json ${family}`,
+    ),
+  ).filter(
     (entry): entry is [string, string] =>
       /^[A-Z]{1,4}$/.test(entry[0]) &&
       typeof entry[1] === 'string' &&
       allowsInstanceType(platform, entry[1]),
   );
-  if (!sizes.length) throw new Error(`${id} sizes.json has no valid entries`);
+  if (!sizes.length)
+    throw new Error(`${id} sizes.json has no valid ${family} entries`);
   return Object.fromEntries(sizes);
+}
+
+/** Every instance type any OS family's size maps to on this platform. */
+export async function allSizeTypes(
+  id: string,
+  logger: LoggerService,
+): Promise<string[]> {
+  const raw = object(
+    await platformFile(id, 'sizes.json', logger),
+    'sizes.json',
+  );
+  const lists = await Promise.all(
+    Object.keys(raw).map(family => loadSizes(id, logger, family)),
+  );
+  return lists.flatMap(sizes => Object.values(sizes));
+}
+
+/** One `ansible/software-catalog.json` entry: label and the per-family package ID (null = not offered). */
+export type SoftwareItem = { id: string; label: string; families: string[] };
+
+/** The platform repo's software catalog, as the request and Modify forms show it. */
+export async function loadSoftware(
+  logger: LoggerService,
+): Promise<SoftwareItem[]> {
+  const raw = object(
+    await repoFile('ansible/software-catalog.json', logger),
+    'software-catalog.json',
+  );
+  return Object.entries(raw)
+    .filter(([id]) => /^[a-z0-9][a-z0-9-]{0,40}$/.test(id))
+    .map(([id, value]) => {
+      const entry = object(value, `software-catalog.json ${id}`);
+      return {
+        id,
+        label:
+          typeof entry.label === 'string' && entry.label ? entry.label : id,
+        families: Object.entries(entry)
+          .filter(
+            ([key, item]) =>
+              key !== 'label' && typeof item === 'string' && item.length > 0,
+          )
+          .map(([key]) => key),
+      };
+    });
+}
+
+/**
+ * Why `software` cannot be installed on this OS (the stage validation would fail permanently),
+ * or null. Throws when the platform or catalog cannot be read.
+ */
+export async function refuseSoftware(
+  platformId: string,
+  os: unknown,
+  software: string[],
+  logger: LoggerService,
+): Promise<string | null> {
+  const [platform, catalog] = await Promise.all([
+    loadPlatform(platformId, logger),
+    loadSoftware(logger),
+  ]);
+  const family = osFamily(platform, os);
+  if (!family) return 'Choose a supported VM platform and image';
+  const missing = software.filter(
+    item =>
+      !catalog.find(entry => entry.id === item)?.families.includes(family),
+  );
+  return missing.length
+    ? `Not offered for ${
+        platform.os[os as string]?.label ?? os
+      }: ${missing.join(', ')}`
+    : null;
 }
 
 export async function platformLabel(id: string, logger: LoggerService) {

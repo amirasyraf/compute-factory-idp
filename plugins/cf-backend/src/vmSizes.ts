@@ -21,6 +21,9 @@ import {
   fallbackLabel,
   loadPlatform,
   loadSizes,
+  loadSoftware,
+  minMemoryMiB,
+  osFamily,
   validPlatform,
 } from './platforms';
 
@@ -155,7 +158,8 @@ export const vmSizesPlugin = createBackendPlugin({
                   InstanceTypes: types as _InstanceType[],
                 }),
               );
-              const value: Record<string, Specs> = {};
+              // Linux and Windows sizes map to different types; keep both cached.
+              const value: Record<string, Specs> = { ...awsSpecs?.value };
               for (const item of result.InstanceTypes ?? []) {
                 if (!item.InstanceType) continue;
                 value[item.InstanceType] = toSpecs(item);
@@ -331,11 +335,12 @@ export const vmSizesPlugin = createBackendPlugin({
           throw new Error(`No instance-type source for ${platform}`);
         }
 
-        async function sizesFor(platform: string) {
-          const [info, mapping] = await Promise.all([
-            loadPlatform(platform, logger),
-            loadSizes(platform, logger),
-          ]);
+        // Sizes differ per OS family (Windows needs more memory); a missing OS is Linux.
+        async function sizesFor(platform: string, os: unknown) {
+          const info = await loadPlatform(platform, logger);
+          const family = os === undefined ? 'linux' : osFamily(info, os);
+          if (!family) throw new Error(`${info.label} does not offer ${os}`);
+          const mapping = await loadSizes(platform, logger, family);
           let specs: Record<string, Specs> = {};
           let error: string | null = null;
           if (platform === 'aws')
@@ -360,6 +365,8 @@ export const vmSizesPlugin = createBackendPlugin({
           return {
             platform,
             label: info.label,
+            family,
+            minMemoryMiB: minMemoryMiB(info, os),
             reservedTagPrefixes: info.reservedTagPrefixes,
             sizes,
             error,
@@ -391,6 +398,8 @@ export const vmSizesPlugin = createBackendPlugin({
                         id: os,
                         label: item.label ?? os,
                         versions: imageVersions(info, os),
+                        family: osFamily(info, os) ?? 'linux',
+                        minMemoryMiB: minMemoryMiB(info, os),
                       })),
                       reservedTagPrefixes: info.reservedTagPrefixes,
                       forbiddenTagKeyCharacters: info.forbiddenTagKeyCharacters,
@@ -458,7 +467,24 @@ export const vmSizesPlugin = createBackendPlugin({
           try {
             await httpAuth.credentials(req, { allow: ['user'] });
             const platform = platformOf(req, res);
-            if (platform) res.json(await sizesFor(platform));
+            const os = req.query.os;
+            if (
+              os !== undefined &&
+              (typeof os !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(os))
+            ) {
+              res.status(400).json({ error: 'Unknown OS' });
+              return;
+            }
+            if (platform) res.json(await sizesFor(platform, os));
+          } catch (error) {
+            next(error);
+          }
+        });
+        // The software catalog: each entry's label and the OS families that offer it.
+        router.get('/software', async (req, res, next) => {
+          try {
+            await httpAuth.credentials(req, { allow: ['user'] });
+            res.json({ software: await loadSoftware(logger) });
           } catch (error) {
             next(error);
           }

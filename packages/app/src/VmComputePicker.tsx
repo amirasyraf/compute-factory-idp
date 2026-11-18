@@ -158,9 +158,12 @@ function blockedReason(
   type: string,
   quotaOk: boolean | null | undefined,
   restriction?: DemoRestriction,
+  memory?: { have: number | null; need: number },
 ): string | undefined {
   if (!allowedType(type, restriction)) return 'Unavailable in demo mode';
   if (quotaOk === false) return 'Over vCPU quota';
+  if (memory && memory.need && (memory.have ?? 0) < memory.need)
+    return `Needs ${memoryText(memory.need)} memory for this OS`;
   return undefined;
 }
 
@@ -270,14 +273,22 @@ function InstanceTypePicker({
   label,
   value,
   restriction,
+  minMemoryMiB,
   onSelect,
 }: {
   platform: string;
   label: string;
   value: string | undefined;
   restriction: DemoRestriction | undefined;
+  /** The OS's memory minimum (Windows); smaller types cannot be picked. */
+  minMemoryMiB: number;
   onSelect(type: string): void;
 }) {
+  const blocked = (item: CatalogInstanceType) =>
+    blockedReason(item.type, item.quotaOk, restriction, {
+      have: item.memoryMiB,
+      need: minMemoryMiB,
+    });
   const classes = useStyles();
   const catalog = useInstanceTypeCatalog(true, platform);
   // Azure has no "previous generation" flag; every size counts as current.
@@ -300,10 +311,10 @@ function InstanceTypePicker({
       types.filter(
         item =>
           (!currentOnly || item.currentGeneration) &&
-          (!allowedOnly ||
-            !blockedReason(item.type, item.quotaOk, restriction)),
+          (!allowedOnly || !blocked(item)),
       ),
-    [types, currentOnly, allowedOnly, restriction],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [types, currentOnly, allowedOnly, restriction, minMemoryMiB],
   );
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
@@ -404,25 +415,25 @@ function InstanceTypePicker({
         </TableRow>,
       );
     }
-    const reason = blockedReason(item.type, item.quotaOk, restriction);
-    const blocked = !!reason;
+    const reason = blocked(item);
+    const isBlocked = !!reason;
     const selected = value === item.type;
     body.push(
       <TableRow
         key={item.type}
-        hover={!blocked}
+        hover={!isBlocked}
         selected={selected}
-        aria-disabled={blocked}
+        aria-disabled={isBlocked}
         title={reason}
-        className={blocked ? classes.disabledRow : classes.row}
-        onClick={() => !blocked && onSelect(item.type)}
+        className={isBlocked ? classes.disabledRow : classes.row}
+        onClick={() => !isBlocked && onSelect(item.type)}
       >
         <TableCell padding="checkbox">
           <Radio
             color="primary"
             size="small"
             checked={selected}
-            disabled={blocked}
+            disabled={isBlocked}
             inputProps={{ 'aria-label': item.type }}
             onChange={() => onSelect(item.type)}
           />
@@ -536,6 +547,7 @@ function InstanceTypePicker({
           />
         )}
         {(restriction?.enabled ||
+          minMemoryMiB > 0 ||
           types.some(item => item.quotaOk === false)) && (
           <FormControlLabel
             control={
@@ -634,7 +646,8 @@ function VmComputePickerField({
     os,
     ...(imageVersion ? { imageVersion } : {}),
   };
-  const sizes = useVmSizes(base.platform);
+  // Sizes differ per OS family (Windows sizes are larger).
+  const sizes = useVmSizes(base.platform, base.os);
   const restriction = useDemoRestriction();
   const [advanced, setAdvanced] = useState(Boolean(value.instanceType));
   const cloud = platformLabel(base.platform, platforms);
@@ -754,6 +767,7 @@ function VmComputePickerField({
           label={cloud}
           value={custom}
           restriction={restriction}
+          minMemoryMiB={sizes?.minMemoryMiB ?? 0}
           onSelect={instanceType => onChange({ ...base, instanceType })}
         />
       </Collapse>

@@ -23,6 +23,10 @@ export type VmSize = {
 export type VmSizes = {
   platform?: string;
   label?: string;
+  /** The OS family whose sizes these are (`linux`, `windows`). */
+  family?: string;
+  /** Instance types with less memory cannot run the OS (Windows: 4096). */
+  minMemoryMiB?: number;
   sizes: VmSize[];
   error: string | null;
 };
@@ -31,7 +35,13 @@ export type PlatformInfo = {
   id: string;
   label: string;
   available: boolean;
-  os: { id: string; label: string; versions: string[] }[];
+  os: {
+    id: string;
+    label: string;
+    versions: string[];
+    family?: string;
+    minMemoryMiB?: number;
+  }[];
   reservedTagPrefixes: string[];
   forbiddenTagKeyCharacters: string;
   /** The public IP survives stop/start and resize. */
@@ -108,14 +118,41 @@ const demoFallback = () => ({ enabled: false, instanceTypes: [] });
 const platformsFallback = () => ({ platforms: [] as PlatformInfo[] });
 const query = (platform: string) => `?platform=${encodeURIComponent(platform)}`;
 
-/** Size -> instance type (that platform's `sizes.json`) with live specs; undefined while loading. */
-export function useVmSizes(platform = 'aws'): VmSizes | undefined {
+/**
+ * Size -> instance type (that platform's `sizes.json`, for the OS's family) with live specs;
+ * undefined while loading. Without an OS, Linux sizes.
+ */
+export function useVmSizes(platform = 'aws', os?: string): VmSizes | undefined {
   return useCachedJson(
     'vm-sizes',
-    `/sizes${query(platform)}`,
+    `/sizes${query(platform)}${os ? `&os=${encodeURIComponent(os)}` : ''}`,
     true,
     sizesFallback,
   );
+}
+
+/** One software catalog entry and the OS families that offer it. */
+export type SoftwareItem = { id: string; label: string; families: string[] };
+const softwareFallback = (error: Error) => ({
+  software: [] as SoftwareItem[],
+  error: `Software catalog unavailable: ${error.message}`,
+});
+/** The platform repo's software catalog; undefined while loading. */
+export function useSoftwareCatalog():
+  | { software: SoftwareItem[]; error?: string }
+  | undefined {
+  return useCachedJson('vm-sizes', '/software', true, softwareFallback);
+}
+
+/** The OS family (`linux`, `windows`) of a platform's OS, once platforms are loaded. */
+export function osFamily(
+  platform: string | undefined,
+  os: string | undefined,
+  platforms: PlatformInfo[] | undefined,
+): string | undefined {
+  return platforms
+    ?.find(item => item.id === platform)
+    ?.os.find(item => item.id === os)?.family;
 }
 
 /** Every x86_64 instance type the platform offers in its region, with specs. Fetched only when `enabled`. */
@@ -208,7 +245,10 @@ export function useVmSizeText(entity: Entity | undefined): string {
   const spec = compute(entity);
   const platform =
     typeof spec.platform === 'string' && spec.platform ? spec.platform : 'aws';
-  const sizes = useVmSizes(platform);
+  const sizes = useVmSizes(
+    platform,
+    typeof spec.os === 'string' ? spec.os : undefined,
+  );
   const size = typeof spec.size === 'string' ? spec.size : undefined;
   const requested =
     typeof spec.instanceType === 'string' ? spec.instanceType : undefined;

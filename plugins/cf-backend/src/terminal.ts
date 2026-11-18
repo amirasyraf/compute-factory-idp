@@ -42,6 +42,45 @@ type Session = {
 export class TerminalLimit extends Error {}
 
 /**
+ * A fresh ed25519 key in `dir`, signed by the SSH CA for a few minutes (only the SSH handshake needs
+ * it) with one principal: the VM's team, or platform-admins. Returns the private key path; the
+ * certificate is `<key>-cert.pub`. The CA private key is written only while signing.
+ */
+export async function sessionKey(
+  dir: string,
+  keyId: string,
+  principal: string,
+) {
+  const key = join(dir, 'key');
+  const ca = join(dir, 'ca');
+  await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key], {
+    timeout: 10000,
+  });
+  await writeFile(ca, `${(await fetchCa()).trim()}\n`, { mode: 0o600 });
+  try {
+    await run(
+      'ssh-keygen',
+      [
+        '-q',
+        '-s',
+        ca,
+        '-I',
+        keyId,
+        '-n',
+        principal,
+        '-V',
+        `-1m:+${TERMINAL.certMinutes}m`,
+        `${key}.pub`,
+      ],
+      { timeout: 10000 },
+    );
+  } finally {
+    await rm(ca, { force: true });
+  }
+  return key;
+}
+
+/**
  * Interactive SSH sessions from the IDP to VMs. Each session gets a fresh key, signed by the SSH CA
  * for a few minutes with the principal that grants access (the VM's team, or platform-admins), and
  * runs the system `ssh` in a PTY. The browser exchanges input and output over short HTTP requests.
@@ -113,32 +152,11 @@ export function createTerminals(logger: LoggerService) {
       const id = randomUUID();
       const dir = await mkdtemp(join(tmpdir(), 'cf-term-'));
       try {
-        const key = join(dir, 'key');
-        const ca = join(dir, 'ca');
-        await run('ssh-keygen', ['-q', '-t', 'ed25519', '-N', '', '-f', key], {
-          timeout: 10000,
-        });
-        await writeFile(ca, `${(await fetchCa()).trim()}\n`, { mode: 0o600 });
-        try {
-          await run(
-            'ssh-keygen',
-            [
-              '-q',
-              '-s',
-              ca,
-              '-I',
-              `idp-terminal:${input.user}`,
-              '-n',
-              input.principal,
-              '-V',
-              `-1m:+${TERMINAL.certMinutes}m`,
-              `${key}.pub`,
-            ],
-            { timeout: 10000 },
-          );
-        } finally {
-          await rm(ca, { force: true });
-        }
+        const key = await sessionKey(
+          dir,
+          `idp-terminal:${input.user}`,
+          input.principal,
+        );
         const pty = spawn(
           'ssh',
           [

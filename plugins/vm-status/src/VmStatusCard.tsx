@@ -4,8 +4,13 @@ import { InfoCard, Link } from '@backstage/core-components';
 import { useEntity } from '@backstage/plugin-catalog-react';
 import { Button, makeStyles } from '@material-ui/core';
 import { getVmConfiguration } from './vmSpec';
-import { platformLabel, usePlatforms, useVmSizeText } from './vmSizes';
-import { RunView } from './runs';
+import {
+  osFamily,
+  platformLabel,
+  usePlatforms,
+  useVmSizeText,
+} from './vmSizes';
+import { RunView, useVmsApi } from './runs';
 import { VmRunView } from './RunView';
 import { observedLabel, runNoun, vmColors } from './pipeline';
 import { deriveVm, useVmLive } from './vmLive';
@@ -16,6 +21,12 @@ const SSH_CERT = '/create/templates/default/ssh-cert';
 const VmTerminal = lazy(() =>
   import('./VmTerminal').then(m => ({ default: m.VmTerminal })),
 );
+// guacamole-common-js loads only when someone opens a remote desktop.
+const VmRemoteDesktop = lazy(() =>
+  import('./VmRemoteDesktop').then(m => ({ default: m.VmRemoteDesktop })),
+);
+// Local port for native RDP clients through `ssh -L` (3389 itself is often taken locally).
+const RDP_LOCAL_PORT = 33389;
 
 const useStyles = makeStyles(theme => ({
   grid: {
@@ -167,6 +178,58 @@ function CopyCommand({ command }: { command: string }) {
   );
 }
 
+/** Windows VMs: the team's shared login, fetched only when asked for (each read is logged). */
+function SharedLogin({ name }: { name: string }) {
+  const classes = useStyles();
+  const api = useVmsApi();
+  const [login, setLogin] = useState<{ username: string; password: string }>();
+  const [error, setError] = useState<string>();
+  if (login)
+    return (
+      <div>
+        <CopyCommand command={login.password} />
+        <p className={classes.muted} style={{ marginBottom: 14 }}>
+          Password of <span className={classes.mono}>{login.username}</span>,
+          shared by your team.{' '}
+          <Button
+            size="small"
+            className={classes.button}
+            onClick={() => setLogin(undefined)}
+          >
+            Hide
+          </Button>
+        </p>
+      </div>
+    );
+  return (
+    <>
+      <Button
+        variant="outlined"
+        className={classes.button}
+        style={{ marginRight: 10 }}
+        onClick={() =>
+          api
+            .password(name)
+            .then(value => {
+              setLogin(value);
+              setError(undefined);
+            })
+            .catch(e => setError((e as Error).message))
+        }
+      >
+        Show Password
+      </Button>
+      {error && <p className={classes.error}>{error}</p>}
+    </>
+  );
+}
+
+/** A `.rdp` file for a native client connecting through the `ssh -L` forward. */
+const rdpFile = (user: string) =>
+  `data:application/x-rdp;charset=utf-8,${encodeURIComponent(
+    `full address:s:localhost:${RDP_LOCAL_PORT}\r\nusername:s:${user}\r\nprompt for credentials:i:1\r\n`,
+  )}`;
+
 /** The VM page body: connect, configuration and activity, with instance details aside. */
 export function VmStatusCard() {
   const classes = useStyles();
@@ -179,6 +242,9 @@ export function VmStatusCard() {
   const annotations = entity.metadata.annotations ?? {};
   const vm = deriveVm(entity, live);
   const [terminal, setTerminal] = useState(false);
+  const [desktop, setDesktop] = useState(false);
+  const windows =
+    osFamily(desired.platform, desired.os, platforms) === 'windows';
   const runs = live.runs ?? [];
   const current =
     vm.latest &&
@@ -225,6 +291,43 @@ export function VmStatusCard() {
         {platformLabel(desired.platform, platforms)}. Destroy the VM to remove
         its record.
       </p>
+    );
+  else if (vm.ip && vm.state !== 'building' && windows)
+    connect = (
+      <>
+        <CopyCommand
+          command={`ssh -L ${RDP_LOCAL_PORT}:localhost:3389 ${vm.user}@${vm.ip}`}
+        />
+        {vm.state === 'ready' && (
+          <div style={{ marginBottom: 14 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              className={classes.button}
+              style={{ marginRight: 10 }}
+              onClick={() => setDesktop(true)}
+            >
+              Open Remote Desktop
+            </Button>
+            <Button
+              variant="outlined"
+              className={classes.button}
+              style={{ marginRight: 10 }}
+              onClick={() => setTerminal(true)}
+            >
+              Open Terminal
+            </Button>
+            <SharedLogin name={entity.metadata.name} />
+          </div>
+        )}
+        <p className={classes.note}>
+          For your own RDP client, keep the SSH command above running and open{' '}
+          <a href={rdpFile(vm.user)} download={`${entity.metadata.name}.rdp`}>
+            {entity.metadata.name}.rdp
+          </a>{' '}
+          (localhost:{RDP_LOCAL_PORT}) with the shared password.
+        </p>
+      </>
     );
   else if (vm.ip && vm.state !== 'building')
     connect = (
@@ -284,10 +387,23 @@ export function VmStatusCard() {
               />
             </Suspense>
           )}
+          {desktop && (
+            <Suspense fallback={null}>
+              <VmRemoteDesktop
+                vmRef={stringifyEntityRef(entity)}
+                name={entity.metadata.name}
+                open={desktop}
+                onClose={() => setDesktop(false)}
+              />
+            </Suspense>
+          )}
           <p className={classes.muted} style={{ marginTop: 10 }}>
-            Open a terminal here, or sign your own public key for 12 hours of
-            access as <span className={classes.mono}>{vm.user}</span> to your
-            team's VMs from your machine.
+            {windows
+              ? 'Open the desktop or a PowerShell terminal here'
+              : 'Open a terminal here'}
+            , or sign your own public key for 12 hours of access as{' '}
+            <span className={classes.mono}>{vm.user}</span> to your team's VMs
+            from your machine.
           </p>
         </InfoCard>
 

@@ -36,7 +36,9 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 ## Operating Context
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
-  users actually use the VM (`ssh <user>@<ip>`, `ubuntu` for Ubuntu, with key + issued cert).
+  users actually use the VM (`ssh <user>@<ip>`, `ubuntu` for Ubuntu, `Administrator`/`cfadmin` for Windows
+  Server, with key + issued cert). Windows VMs also open a remote desktop in the browser or a native RDP
+  client through an SSH forward, with the team's shared password.
 - Core flows: sign in → Home (expandable resource overview) → Launch (category → product → platform → image release) → VM form → Launch → live VM run page →
   VM entity page (live state, Connect, Activity, Configuration, Details) → open a browser terminal or
   get an SSH certificate, power actions, Modify form, OS updates, re-apply, destroy.
@@ -58,8 +60,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 - Light mode only for now; dark mode is not required.
 - The frontend mixes MUI v4 (`@material-ui/*`, most Backstage plugins) and `@backstage/ui` (BUI); a
   consistent look must cover both.
-- POC scope today: Ubuntu on AWS and Azure (vSphere shown as "Coming soon"). Long-term target includes
-  Windows, vSphere and more products than VMs, so the design does not assume VMs are the only thing:
+- POC scope today: Ubuntu 26.04 and Windows Server 2025 on AWS and Azure (vSphere shown as "Coming
+  soon"). Long-term target includes vSphere and more products than VMs, so the design does not assume VMs are the only thing:
   Launch lists products and platforms from data.
 - Billing fields are self-reported tags, not billing authorization. Modify uninstalls unchecked catalog
   software (package data and configuration files are kept).

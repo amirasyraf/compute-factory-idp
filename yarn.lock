@@ -3974,8 +3974,10 @@ __metadata:
     "@backstage/plugin-catalog-react": "npm:^3.3.0"
     "@material-ui/core": "npm:^4.12.2"
     "@material-ui/icons": "npm:^4.9.1"
+    "@types/guacamole-common-js": "npm:1.5.5"
     "@xterm/addon-fit": "npm:^0.10.0"
     "@xterm/xterm": "npm:^5.5.0"
+    guacamole-common-js: "npm:1.5.0"
   peerDependencies:
     react: ^18.0.2
     react-dom: ^18.0.2
@@ -7256,6 +7258,13 @@ __metadata:
     "@types/qs": "npm:*"
     "@types/serve-static": "npm:^1"
   checksum: 10c0/f42b616d2c9dbc50352c820db7de182f64ebbfa8dba6fb6c98e5f8f0e2ef3edde0131719d9dc6874803d25ad9ca2d53471d0fec2fbc60a6003a43d015bab72c4
+  languageName: node
+  linkType: hard
+
+"@types/guacamole-common-js@npm:1.5.5":
+  version: 1.5.5
+  resolution: "@types/guacamole-common-js@npm:1.5.5"
+  checksum: 10c0/6e4f3689938ef59d30d16da57168fadcb6d3a552aa66636d4ddbfa1841c00a01d4e8c1c1f5e80eb21cae6779cf45c961f78319f96dd9a7bd14b23442854880ad
   languageName: node
   linkType: hard
 
@@ -13354,6 +13363,13 @@ __metadata:
     gaxios: "npm:^6.0.0"
     jws: "npm:^4.0.0"
   checksum: 10c0/0a3dcacb1a3c4578abe1ee01c7d0bf20bffe8ded3ee73fc58885d53c00f6eb43b4e1372ff179f0da3ed5cfebd5b7c6ab8ae2776f1787e90d943691b4fe57c716
+  languageName: node
+  linkType: hard
+
+"guacamole-common-js@npm:1.5.0":
+  version: 1.5.0
+  resolution: "guacamole-common-js@npm:1.5.0"
+  checksum: 10c0/680c8c6edfe7141899c77de1b3d26de1bdc7f19f221ba00acbc48bd8271773066ec2d235fbc53abf23ce5276fc0f4b65fad51111a6baa3f40c2373f77d3a1a3a
   languageName: node
   linkType: hard
 

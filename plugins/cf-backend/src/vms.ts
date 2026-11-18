@@ -19,10 +19,13 @@ import { createObserver } from './observed';
 import {
   allowsInstanceType,
   loadPlatform,
+  osFamily,
   platformLabel,
+  refuseSoftware,
   validImageVersion,
   validPlatform,
 } from './platforms';
+import { RdpLimit, createRdp, readVmLogin } from './rdp';
 import { TerminalLimit, createTerminals } from './terminal';
 
 const OPERATIONS: Record<string, RunKind> = {
@@ -146,8 +149,10 @@ export const vmsPlugin = createBackendPlugin({
         }
         // The health check reads the clouds only where VM automation runs (production).
         const observer = automation ? createObserver(logger) : undefined;
-        // The terminal reaches real VMs with a CA-signed key: production only, like automation.
+        // The terminal and remote desktop reach real VMs with a CA-signed key: production only,
+        // like automation.
         const terminals = automation ? createTerminals(logger) : undefined;
+        const desktops = automation ? createRdp(logger) : undefined;
         const orchestrator = createOrchestrator({
           db,
           logger,
@@ -235,7 +240,13 @@ export const vmsPlugin = createBackendPlugin({
         };
 
         const router = express.Router();
-        router.use(express.json({ limit: '64kb' }));
+        // Remote desktop input (Guacamole instructions, including clipboard) has its own larger limit.
+        const json = express.json({ limit: '64kb' });
+        router.use((req, res, next) =>
+          /^\/rdp\/[^/]+\/input$/.test(req.path)
+            ? next()
+            : json(req, res, next),
+        );
 
         router.get(
           '/demo/state',
@@ -392,6 +403,26 @@ export const vmsPlugin = createBackendPlugin({
                 send(res, refusal);
                 return;
               }
+              if (software.length) {
+                let unsupported: string | null;
+                try {
+                  unsupported = await refuseSoftware(
+                    compute.platform,
+                    compute.os,
+                    software,
+                    logger,
+                  );
+                } catch (error) {
+                  res.status(503).json({
+                    error: `Software catalog unavailable: ${message(error)}`,
+                  });
+                  return;
+                }
+                if (unsupported) {
+                  res.status(400).json({ error: unsupported });
+                  return;
+                }
+              }
               params = {
                 compute,
                 configuration: { software, adJoin: req.body.adJoin },
@@ -459,13 +490,99 @@ export const vmsPlugin = createBackendPlugin({
           }),
         );
 
+        /**
+         * The SSH target of a VM the caller may connect to (terminal, remote desktop): its running
+         * instance's address, login user, the principal that grants access, and its OS family.
+         */
+        const connectTarget = async (
+          req: express.Request,
+          info: Caller,
+          vm: unknown,
+        ): Promise<
+          | { error: string; status: number }
+          | {
+              name: string;
+              requestId: string;
+              host: string;
+              sshUser: string;
+              principal: string;
+              family: string | undefined;
+            }
+        > => {
+          const credentials = await httpAuth.credentials(req, {
+            allow: ['user'],
+          });
+          let name: string | undefined;
+          try {
+            const ref = parseEntityRef(String(vm ?? ''));
+            if (
+              ref.kind.toLowerCase() === 'resource' &&
+              ref.namespace === 'default'
+            )
+              name = ref.name;
+          } catch {
+            name = undefined;
+          }
+          if (!name || !/^[a-z][a-z0-9-]{2,20}$/.test(name))
+            return { status: 400, error: 'Invalid VM' };
+          const found = await readVm(credentials, info, name);
+          if (!found.ok) return { status: found.status, error: found.error };
+          // Connect to the address the cloud reports for this incarnation (inventory can lag
+          // a console start); freshness is that of the VM's own platform.
+          const platform = platformOf(found.entity);
+          const instance = observer?.get(name, found.requestId) ?? null;
+          const fresh =
+            Date.now() -
+              Date.parse(observer?.status(platform).checkedAt ?? '') <
+            OBSERVED_FRESH_MS;
+          if (fresh && instance?.state !== 'running')
+            return {
+              status: 409,
+              error: instance
+                ? `The VM is ${instance.state}; start it first`
+                : `No instance for this VM was found in ${await platformLabel(
+                    platform,
+                    logger,
+                  )}`,
+            };
+          // Linux user names, or Windows ones such as Administrator.
+          const sshUser = found.entity.metadata.annotations?.['cf/ssh-user'];
+          if (!sshUser || !/^[A-Za-z_][A-Za-z0-9_-]{0,31}$/.test(sshUser))
+            return {
+              status: 409,
+              error: 'The VM has no valid SSH user (cf/ssh-user)',
+            };
+          const host =
+            instance?.publicIp ||
+            found.entity.metadata.annotations?.['cf/public-ip'];
+          if (!host || !/^[0-9]+(\.[0-9]+){3}$/.test(host))
+            return { status: 409, error: 'The VM has no public IP address' };
+          let family: string | undefined;
+          try {
+            family = osFamily(
+              await loadPlatform(platform, logger),
+              record(record(found.entity.spec).compute).os,
+            );
+          } catch {
+            family = undefined;
+          }
+          return {
+            name,
+            requestId: found.requestId,
+            host,
+            sshUser,
+            // The VM trusts team-<owner> and team-platform-admins (CONTRACTS.md §3).
+            principal: info.teams.includes(found.team)
+              ? `team-${found.team}`
+              : 'team-platform-admins',
+            family,
+          };
+        };
+
         // Browser terminal (CONTRACTS.md §8.4): open, then exchange input/output by short requests.
         router.post(
           '/terminal',
           route(async (req, res) => {
-            const credentials = await httpAuth.credentials(req, {
-              allow: ['user'],
-            });
             const info = await caller(req);
             if (!terminals) {
               res.status(503).json({
@@ -478,80 +595,26 @@ export const vmsPlugin = createBackendPlugin({
               Number.isInteger(value) &&
               Number(value) >= 10 &&
               Number(value) <= max;
-            let name: string | undefined;
-            try {
-              const ref = parseEntityRef(String(vm ?? ''));
-              if (
-                ref.kind.toLowerCase() === 'resource' &&
-                ref.namespace === 'default'
-              )
-                name = ref.name;
-            } catch {
-              name = undefined;
-            }
-            if (
-              !name ||
-              !/^[a-z][a-z0-9-]{2,20}$/.test(name) ||
-              !size(cols, 500) ||
-              !size(rows, 200)
-            ) {
+            if (!size(cols, 500) || !size(rows, 200)) {
               res.status(400).json({ error: 'Invalid terminal request' });
               return;
             }
-            const found = await readVm(credentials, info, name);
-            if (!found.ok) {
-              res.status(found.status).json({ error: found.error });
-              return;
-            }
-            // Connect to the address the cloud reports for this incarnation (inventory can lag
-            // a console start); freshness is that of the VM's own platform.
-            const platform = platformOf(found.entity);
-            const instance = observer?.get(name, found.requestId) ?? null;
-            const fresh =
-              Date.now() -
-                Date.parse(observer?.status(platform).checkedAt ?? '') <
-              OBSERVED_FRESH_MS;
-            if (fresh && instance?.state !== 'running') {
-              res.status(409).json({
-                error: instance
-                  ? `The VM is ${instance.state}; start it first`
-                  : `No instance for this VM was found in ${await platformLabel(
-                      platform,
-                      logger,
-                    )}`,
-              });
-              return;
-            }
-            const sshUser = found.entity.metadata.annotations?.['cf/ssh-user'];
-            if (!sshUser || !/^[a-z_][a-z0-9_-]{0,31}$/.test(sshUser)) {
-              res
-                .status(409)
-                .json({ error: 'The VM has no valid SSH user (cf/ssh-user)' });
-              return;
-            }
-            const host =
-              instance?.publicIp ||
-              found.entity.metadata.annotations?.['cf/public-ip'];
-            if (!host || !/^[0-9]+(\.[0-9]+){3}$/.test(host)) {
-              res
-                .status(409)
-                .json({ error: 'The VM has no public IP address' });
+            const target = await connectTarget(req, info, vm);
+            if ('error' in target) {
+              res.status(target.status).json({ error: target.error });
               return;
             }
             try {
               const session = await terminals.open({
                 user: info.user,
-                vm: name,
-                host,
-                sshUser,
-                // The VM trusts team-<owner> and team-platform-admins (CONTRACTS.md §3).
-                principal: info.teams.includes(found.team)
-                  ? `team-${found.team}`
-                  : 'team-platform-admins',
+                vm: target.name,
+                host: target.host,
+                sshUser: target.sshUser,
+                principal: target.principal,
                 cols,
                 rows,
               });
-              res.json({ ...session, host, user: sshUser });
+              res.json({ ...session, host: target.host, user: target.sshUser });
             } catch (error) {
               if (error instanceof TerminalLimit)
                 res.status(429).json({ error: error.message });
@@ -603,6 +666,151 @@ export const vmsPlugin = createBackendPlugin({
           route(async (req, res) => {
             const info = await caller(req);
             terminals?.close(req.params.id, info.user);
+            res.json({});
+          }),
+        );
+
+        // Windows VMs: the team's shared login (Secrets Manager compute-factory/vm/<name>), for native
+        // RDP clients. Readable by the owning team and admins, like the terminal; every read is logged.
+        router.get(
+          '/password/:name',
+          route(async (req, res) => {
+            const credentials = await httpAuth.credentials(req, {
+              allow: ['user'],
+            });
+            const info = await caller(req);
+            const name = req.params.name;
+            if (!/^[a-z][a-z0-9-]{2,20}$/.test(name)) {
+              res.status(400).json({ error: 'Invalid VM' });
+              return;
+            }
+            const found = await readVm(credentials, info, name);
+            if (!found.ok) {
+              res.status(found.status).json({ error: found.error });
+              return;
+            }
+            const login = await readVmLogin(name, found.requestId);
+            if (!login) {
+              res.status(404).json({
+                error:
+                  'This VM has no login password yet (the Access stage sets it)',
+              });
+              return;
+            }
+            logger.info(`VM password of ${name} shown to ${info.user}`);
+            res.set('Cache-Control', 'no-store');
+            res.json(login);
+          }),
+        );
+
+        // Browser remote desktop for Windows VMs (CONTRACTS.md §8.5): guacd through an SSH tunnel,
+        // Guacamole instructions exchanged by short requests like the terminal.
+        router.post(
+          '/rdp',
+          route(async (req, res) => {
+            const info = await caller(req);
+            if (!desktops) {
+              res.status(503).json({
+                error: 'Remote desktop is disabled in this environment',
+              });
+              return;
+            }
+            const { vm, width, height, dpi, timezone } = req.body ?? {};
+            const within = (value: unknown, min: number, max: number) =>
+              Number.isInteger(value) &&
+              Number(value) >= min &&
+              Number(value) <= max;
+            if (
+              !within(width, 320, 7680) ||
+              !within(height, 240, 4320) ||
+              !within(dpi, 48, 384) ||
+              typeof timezone !== 'string' ||
+              !/^[A-Za-z0-9_+\-/]{1,64}$/.test(timezone)
+            ) {
+              res.status(400).json({ error: 'Invalid remote desktop request' });
+              return;
+            }
+            const target = await connectTarget(req, info, vm);
+            if ('error' in target) {
+              res.status(target.status).json({ error: target.error });
+              return;
+            }
+            if (target.family !== 'windows') {
+              res
+                .status(400)
+                .json({ error: 'Remote desktop is for Windows VMs' });
+              return;
+            }
+            const login = await readVmLogin(target.name, target.requestId);
+            if (!login) {
+              res.status(409).json({
+                error:
+                  'This VM has no login password yet (the Access stage sets it)',
+              });
+              return;
+            }
+            try {
+              const session = await desktops.open({
+                user: info.user,
+                vm: target.name,
+                host: target.host,
+                sshUser: target.sshUser,
+                principal: target.principal,
+                login,
+                width,
+                height,
+                dpi,
+                timezone,
+              });
+              res.json({ ...session, host: target.host, user: login.username });
+            } catch (error) {
+              if (error instanceof RdpLimit)
+                res.status(429).json({ error: error.message });
+              else if (error instanceof Error)
+                res.status(502).json({ error: error.message });
+              else throw error;
+            }
+          }),
+        );
+        router.get(
+          '/rdp/:id/output',
+          route(async (req, res) => {
+            const info = await caller(req);
+            const after = Number(req.query.after ?? 0);
+            const output = await desktops?.read(
+              req.params.id,
+              info.user,
+              Number.isSafeInteger(after) ? after : 0,
+            );
+            if (!output)
+              res
+                .status(404)
+                .json({ error: 'Remote desktop session not found' });
+            else res.json(output);
+          }),
+        );
+        router.post(
+          '/rdp/:id/input',
+          express.json({ limit: '1mb' }),
+          route(async (req, res) => {
+            const info = await caller(req);
+            const { data } = req.body ?? {};
+            const ok =
+              typeof data === 'string' &&
+              data.length <= 512 * 1024 &&
+              Boolean(desktops?.input(req.params.id, info.user, data));
+            if (ok) res.json({});
+            else
+              res.status(404).json({
+                error: 'Remote desktop session not found or closed',
+              });
+          }),
+        );
+        router.delete(
+          '/rdp/:id',
+          route(async (req, res) => {
+            const info = await caller(req);
+            desktops?.close(req.params.id, info.user);
             res.json({});
           }),
         );

@@ -40,4 +40,4 @@ spec:
           Valid until **${{ steps.sign.output.validUntil }}**.
           Principals: `${{ steps.sign.output.principals | join(', ') }}`.
 
-          Connect with `ssh ubuntu@<ip>` (the VM page shows its IP).
+          Connect with `ssh <user>@<ip>`; the VM page shows its login user and IP (`ubuntu` on Ubuntu, `Administrator` or `cfadmin` on Windows Server).

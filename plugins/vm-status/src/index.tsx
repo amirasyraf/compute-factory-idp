@@ -39,9 +39,11 @@ export { getVmConfiguration } from './vmSpec';
 export {
   describeSpecs,
   memoryText,
+  osFamily,
   osLabel,
   platformLabel,
   sizeBadge,
+  useSoftwareCatalog,
   useDemoRestriction,
   useInstanceTypeCatalog,
   usePlatforms,
@@ -52,6 +54,7 @@ export {
   type InstanceSpecs,
   type InstanceTypeCatalog,
   type PlatformInfo,
+  type SoftwareItem,
   type VmSize,
   type VmSizes,
 } from './vmSizes';

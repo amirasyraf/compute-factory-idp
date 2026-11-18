@@ -51,6 +51,13 @@ const scaffolder = scaffolderPlugin.withOverrides({
         field: () => import('./VmComputePicker').then(m => m.VmComputePicker),
       },
     }),
+    // Software checkboxes from the platform repo's catalog, for the chosen OS's family.
+    FormFieldBlueprint.make({
+      name: 'vm-software-picker',
+      params: {
+        field: () => import('./VmSoftwarePicker').then(m => m.VmSoftwarePicker),
+      },
+    }),
     // One cloud tags table: fixed cost_center/project_code plus optional tags.
     FormFieldBlueprint.make({
       name: 'vm-tags-editor',

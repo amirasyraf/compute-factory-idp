@@ -338,7 +338,16 @@ try {
         ? { items: listVms, totalItems: listVms.length, pageInfo: {} }
         : { items: [], totalItems: 0, pageInfo: {} };
     } else if (path.endsWith('/vm-sizes/platforms')) {
-      const ubuntu = [{ id: 'ubuntu', label: 'Ubuntu', versions: ['26.04'] }];
+      const ubuntu = [
+        { id: 'ubuntu', label: 'Ubuntu', versions: ['26.04'], family: 'linux' },
+      ];
+      const windows = {
+        id: 'windows',
+        label: 'Windows Server',
+        versions: ['2025'],
+        family: 'windows',
+        minMemoryMiB: 4096,
+      };
       const rules = (prefixes, chars) => ({
         reservedTagPrefixes: prefixes,
         forbiddenTagKeyCharacters: chars,
@@ -357,7 +366,7 @@ try {
             id: 'azure',
             label: 'Azure',
             available: true,
-            os: ubuntu,
+            os: [...ubuntu, windows],
             ...rules(['azure', 'microsoft', 'windows'], '<>%&\\?/'),
           },
           {
@@ -367,6 +376,15 @@ try {
             os: [],
             ...rules([], ''),
           },
+        ],
+      };
+    } else if (path.endsWith('/vm-sizes/software')) {
+      const item = (id, label, families) => ({ id, label, families });
+      json = {
+        software: [
+          item('git', 'Git', ['linux', 'windows']),
+          item('nginx', 'nginx', ['linux']),
+          item('vscode', 'VS Code', ['windows']),
         ],
       };
     } else if (path.endsWith('/vm-sizes/sizes') && platform === 'azure') {
@@ -381,6 +399,10 @@ try {
       json = {
         platform: 'azure',
         label: 'Azure',
+        minMemoryMiB:
+          new URL(route.request().url()).searchParams.get('os') === 'windows'
+            ? 4096
+            : 0,
         sizes: [
           {
             size: 'XS',
@@ -427,6 +449,7 @@ try {
         region: 'australiaeast',
         types: [
           type('Standard_B2s_v2', 'standardBsv2Family', 2, 8, false),
+          type('Standard_B2ts_v2', 'standardBsv2Family', 2, 1, true),
           type('Standard_D2s_v6', 'StandardDsv6Family', 2, 8, true),
           type('Standard_D4s_v6', 'StandardDsv6Family', 4, 16, true),
         ],
@@ -625,6 +648,19 @@ try {
                       enum: ['XS', 'S', 'M', 'L'],
                     },
                     instanceType: { type: 'string' },
+                  },
+                },
+                configuration: {
+                  title: 'Configuration',
+                  type: 'object',
+                  properties: {
+                    software: {
+                      title: 'Software',
+                      type: 'array',
+                      default: [],
+                      items: { type: 'string' },
+                      'ui:field': 'VmSoftwarePicker',
+                    },
                   },
                 },
                 tags: {
@@ -1402,8 +1438,12 @@ try {
   await expect(
     page.getByRole('heading', { name: 'Choose an Image' }),
   ).toBeVisible();
-  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeChecked();
-  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeEnabled();
+  // Two images (Ubuntu, Windows Server): nothing is preselected.
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+  await expect(
+    page.getByRole('radio', { name: 'Windows Server 2025' }),
+  ).toBeEnabled();
+  await page.getByRole('radio', { name: 'Ubuntu 26.04' }).check();
   await capture('launch-image');
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page).toHaveURL(
@@ -1438,12 +1478,40 @@ try {
   await expect(page.getByText('"/" is not allowed in keys')).toBeVisible();
   await page.getByLabel('Tag 1 key').fill('aws:x');
   await expect(page.getByText('Reserved key')).toHaveCount(0);
+  // Software and memory minimum follow the OS family: Ubuntu, then Windows Server.
+  await expect(page.getByRole('checkbox', { name: 'nginx' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'VS Code' })).toHaveCount(0);
+  await expect(
+    azureTypes.getByRole('radio', { name: 'Standard_B2ts_v2' }),
+  ).toBeEnabled();
   await capture('launch-configure');
+  await page.getByRole('link', { name: 'Change', exact: true }).click();
+  await page.getByRole('radio', { name: 'Windows Server 2025' }).check();
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(
+    page.getByText('Windows Server 2025', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'VS Code' })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'nginx' })).toHaveCount(0);
+  await page.getByRole('checkbox', { name: 'Git' }).check();
+  await page
+    .getByRole('button', { name: /Advanced: Choose a Specific Azure/ })
+    .click();
+  const windowsTypes = page.getByRole('table', {
+    name: 'Azure instance types',
+  });
+  await expect(
+    windowsTypes.getByRole('radio', { name: 'Standard_B2ts_v2' }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText('Needs 4 GiB memory for this OS').first(),
+  ).toBeVisible();
+  await capture('launch-configure-windows');
   await page.goto(`${base}/launch/vm-request/azure`);
   await expect(page).toHaveURL(`${base}${vmLaunchPath}/azure`);
   assertNoErrors(errors);
   console.log(
-    'LAUNCH UI PASS: Compute → Virtual Machines → platform → selectable OS release, prefill, Change and legacy link; Azure sizes, quota and tag rules (fixture APIs)',
+    'LAUNCH UI PASS: Compute → Virtual Machines → platform → selectable OS release, prefill, Change and legacy link; Azure sizes, quota and tag rules; software and memory minimum per OS family (fixture APIs)',
   );
   const wording = [
     [

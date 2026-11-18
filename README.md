@@ -21,7 +21,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     ⋯ Apply OS updates, Re-apply configuration, Destroy) with confirm dialogs (Destroy asks for the VM
     name). Actions post to `POST /api/vms/runs` with a per-dialog UUID request key; Modify opens the
     `vm-modify` template prefilled with the current configuration. The body has Connect (SSH command,
-    **Open terminal**, certificate), Activity (active/failed run with retry/skip, then the last 10 runs), Configuration
+    **Open terminal**, certificate; Windows VMs also **Open Remote Desktop**, **Show Password** and a
+    `.rdp` file with the `ssh -L 33389:localhost:3389` command for native clients), Activity (active/failed run with retry/skip, then the last 10 runs), Configuration
     and Details (health check, instance, provenance). With no known run it falls back to `cf/status`.
     When a refresh finds the entity removed from the catalog it shows "Destroyed" and stops polling.
   - Desired compute/configuration/billing/tags come from the entity's structured `spec`. Modify
@@ -111,7 +112,20 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   of the VM's team, key ID `idp-terminal:<user>`) and runs the system `ssh` as the VM's `cf/ssh-user` in a PTY (`node-pty`, built
   in the image; on macOS the prebuilt `spawn-helper` may need `chmod +x` for local runs). The xterm.js
   dialog posts keystrokes and long-polls output over plain HTTP. Two sessions per user, 15-minute idle
-  and 90-second orphan timeouts, open/close logged; production only (`demoAutomation`).
+  and 90-second orphan timeouts, open/close logged; production only (`demoAutomation`). Windows login
+  users such as `Administrator` are accepted; the session is PowerShell.
+- **Browser remote desktop** (Windows VMs; `plugins/cf-backend/src/rdp.ts`,
+  `plugins/vm-status/src/VmRemoteDesktop.tsx`, CONTRACTS.md §8.5): `POST /api/vms/rdp` signs a session key
+  like the terminal (key ID `idp-rdp:<user>`), runs `ssh -N -L 127.0.0.1:<port>:localhost:3389` to the VM,
+  and does the Guacamole handshake with the `guacd` container (`guacamole/guacd:1.6.0`, sharing the
+  backstage container's network namespace, `127.0.0.1:4822`) using the VM's shared login from Secrets
+  Manager `compute-factory/vm/<name>` (`security=nla`, `ignore-cert`, display-update resize). The browser
+  uses guacamole-common-js 1.5.0 (npm repack; `@types/guacamole-common-js`) with a custom
+  `Guacamole.Tunnel` that long-polls `GET /rdp/:id/output` and posts instructions to `/rdp/:id/input`,
+  never WebSocket or streamed responses (Netskope). Unacknowledged output is capped at 8 MiB (then guacd
+  is paused; unconsumed input over 4 MiB closes the session); one open or connecting session per user, 30-minute idle (frame `sync` acks do not count) and 90-second orphan
+  timeouts; open/close logged. `GET /api/vms/password/:name` returns the shared login to the owning team
+  and admins (logged), only when the secret's `requestId` matches the VM's `cf/request-id`. Production only.
 - **VM health check** (`plugins/cf-backend/src/observed.ts`, CONTRACTS.md §8.3): only where
   `computeFactory.demoAutomation` is on, a 30-second scheduled task (and a scan after each finished
   day-2 run) scans every platform and keeps each platform's result in memory separately (a failing
@@ -148,11 +162,12 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   - Each platform's `terraform/platforms/<p>/{platform.json,sizes.json}` is read from the platform repo's
     `main` through the GitHub API (cached 5 minutes, last good copy kept during outages). `PLATFORMS`
     (`aws`, `azure`) is the list the IDP can read specs and health for; `COMING_SOON` adds vSphere.
-  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions), tag
+  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions, family,
+    minMemoryMiB), tag
     rules and `staticPublicIp` per platform, for Launch, the tags editor and the stop/start wording
     (Azure keeps its address; AWS gets a new one).
-  - `GET /api/vm-sizes/sizes?platform=<p>` (default `aws`): XS-L with vCPU, memory, architecture and
-    network. AWS from `ec2:DescribeInstanceTypes` (cached 1 hour); Azure from the Resource SKUs API,
+  - `GET /api/vm-sizes/sizes?platform=<p>&os=<os>` (defaults `aws`, Linux): XS-L of the OS family's map
+    (Windows sizes are larger) with vCPU, memory, architecture and network, plus `family` and `minMemoryMiB`. AWS from `ec2:DescribeInstanceTypes` (cached 1 hour); Azure from the Resource SKUs API,
     with `quotaOk`. Without cloud access it returns an `error` and types without specs.
   - `GET /api/vm-sizes/instance-types?platform=<p>`: AWS every x86_64, EBS-backed type offered in the
     region (`DescribeInstanceTypeOfferings` + `DescribeInstanceTypes`, `mac*` excluded). Azure every VM
@@ -165,14 +180,19 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     on Launch with a **Change** link (not on Modify: `ui:options.locked`), size **cards** (size,
     instance type, vCPU, memory, network, CPU) and a collapsed **Advanced** picker: category tabs with
     counts, rows grouped by family, search, family/min vCPU/min memory filters, a current-generation
-    toggle (AWS) and sortable type/vCPU/memory columns. It submits exactly one of `size` or
+    toggle (AWS) and sortable type/vCPU/memory columns. Types below the OS's `minMemoryMiB` (Windows: 4 GiB)
+    are greyed out ("Needs 4 GiB memory for this OS"). It submits exactly one of `size` or
     `instanceType` and preselects `S` (the schema has no `size` default, which the form would otherwise
     re-add beside an instance type). `VmSizePicker` (cards only, on a `size` string) stays registered for
     the earlier template revision.
+  - `GET /api/vm-sizes/software` and `ui:field: VmSoftwarePicker` (`packages/app/src/VmSoftwarePicker.tsx`)
+    on `configuration.software`: checkboxes for the platform repo's `ansible/software-catalog.json` entries
+    offered for the form's OS family (from `formContext.formData.compute`); unavailable selections are
+    dropped. `/api/vms/requests` and Modify refuse other software (400; 503 when the catalog is unreadable).
   - `VmTagsEditor` ("Cloud tags") marks keys reserved by the chosen platform (`reservedTagPrefixes`) or
     containing its forbidden characters (Azure `<>%&\?/`); submit-time validation applies every
     platform's rules. The platform's `spec.py` is authoritative.
-  - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes`: every platform's `sizes.json` values;
+  - **Demo mode:** `/api/vms/demo/state` returns `instanceTypes`: every platform's `sizes.json` values (all OS families);
     while it is on, other types are greyed out and unselectable, and `/api/vms/requests` and Modify
     reject them (403; 503 while the size files cannot be read).
    - The product-page row, VM header and VM card show the launched type from `cf/instance-type`, else the
@@ -209,7 +229,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   `/events` requests and `whois` its IP (corporate TLS proxies such as Netskope).
 - `LOG_LEVEL=debug` in the env file raises Backstage verbosity for a deploy.
 - `catalog/`: users/teams, platform locations and the `ssh-cert` template.
-- `deploy/`: Caddy, Postgres and the backend/frontend bundle in Docker Compose.
+- `deploy/`: Caddy, Postgres, guacd (browser RDP) and the backend/frontend bundle in Docker Compose.
 
 The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
@@ -445,8 +465,10 @@ and checks that the new-version banner appears; on the dev server that check is 
 `scripts/workflow-ui.mjs` uses installed Google Chrome and fixture API responses to check the served
  frontend without signing in, dispatching a workflow or changing backend state. It also walks
  Home → Compute / Virtual Machines and Launch → Compute → Virtual Machines → platform → image. A
- multi-release AWS fixture checks selection and submitted form payload; Azure checks a single
- automatically selected release, live-size presentation with a quota-blocked size, and Azure tag rules.
+ multi-release AWS fixture checks selection and submitted form payload; Azure checks that two images
+ (Ubuntu, Windows Server) are not preselected, live-size presentation with a quota-blocked size, Azure tag rules, and
+ (switching to Windows Server 2025) software checkboxes per OS family and the 4 GiB memory minimum in the
+ Advanced picker. Remote desktop and the password reveal need a real Windows VM and are checked live.
 Set `WORKFLOW_UI_SCREENSHOTS` to a temporary directory to capture run states, entity cards and lists
 at 1440px and 390px widths during the same fixture smoke. Inspect the images, then delete the directory.
 `scripts/live-check.mjs` signs in to the deployed IDP with a real POC login (from the orchestrator's

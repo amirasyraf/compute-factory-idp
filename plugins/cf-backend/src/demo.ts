@@ -3,7 +3,13 @@ import { DatabaseService, LoggerService } from '@backstage/backend-plugin-api';
 import YAML from 'yaml';
 import { github, mapConcurrent, message } from './github';
 import { Orchestrator, Run, RunConflict } from './orchestrator';
-import { PLATFORMS, imageVersions, loadPlatform, loadSizes } from './platforms';
+import {
+  PLATFORMS,
+  allSizeTypes,
+  imageVersions,
+  loadPlatform,
+  refuseSoftware,
+} from './platforms';
 
 const limit = 3;
 const lifetime = 5 * 60 * 1000;
@@ -114,9 +120,9 @@ export function createDemo(options: {
   const demoInstanceTypes = async () =>
     [
       ...new Set(
-        (await Promise.all(PLATFORMS.map(id => loadSizes(id, logger)))).flatMap(
-          sizes => Object.values(sizes),
-        ),
+        (
+          await Promise.all(PLATFORMS.map(id => allSizeTypes(id, logger)))
+        ).flat(),
       ),
     ].sort();
 
@@ -516,6 +522,20 @@ export function createDemo(options: {
         body: { error: 'Choose an image version offered on this platform' },
       };
     spec.compute.imageVersion = version;
+    // The register stage would reject software the OS does not offer, after the run started.
+    const software = spec.configuration?.software;
+    if (Array.isArray(software) && software.length) {
+      let refusal: string | null;
+      try {
+        refusal = await refuseSoftware(platform, os, software, logger);
+      } catch (error) {
+        return {
+          status: 503,
+          body: { error: `Software catalog unavailable: ${message(error)}` },
+        };
+      }
+      if (refusal) return { status: 400, body: { error: refusal } };
+    }
     const mode = await getMode();
     const refusal = await refuseInstanceType(spec.compute?.instanceType);
     if (refusal) return refusal;
