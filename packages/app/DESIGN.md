@@ -193,8 +193,9 @@ The signed-in shell is a full-height (`100vh`) white flex column. A non-shrinkin
 top bar (56px) sits above a separately vertically scrollable content area. It is
 not a sidebar and is not implemented as an overlay on the page.
 
-Home, Resources and Virtual Machines fill the available content width with `32px 20px 48px` page
-padding and no maximum-width cap. Their headers wrap. The Virtual Machines page adds a full-width
+Home centers within a 1056px canvas, with `44px 28px 64px` padding on desktop and the standard mobile
+gutters. Resources and Virtual Machines fill the available width with `32px 20px 48px` page padding.
+Their headers wrap. The Virtual Machines page adds a full-width
 Demo Mode panel below its header; the status strip starts 28px below the panel. These are observed measurements, not a new universal
 spacing-token scale. Owned surfaces commonly use 8/12/16/20/24px intervals, but
 also intentional 10/14/28px gaps; do not claim a strict grid for every measurement.
@@ -285,7 +286,7 @@ than wrapping. Resources always requests screen-reader-only labels; VM product a
 follow the 600px rule. Each item retains a text status and title tooltip.
 
 The model reads `RunView.stages` from the authenticated `vms` API. No stage annotation
-parsing or inferred completion remains. Home, Virtual Machines and Resources each issue one `/summary`
+parsing or inferred completion remains. Home (when the VM panel is open and populated), Virtual Machines and Resources each issue one `/summary`
 request, join by VM name and refresh about every five seconds (including terminal
 summaries, to discover newly created runs). Without a known run they show coarse
 `cf/status` and "No run known", not fabricated stage observations. Summary failures
@@ -334,10 +335,13 @@ rules do not establish a verified contrast/accessibility conformance claim.
 
 ### Home
 
-The greeting and team lead into **Launch a Product**. **Your Resources** groups the visible catalog
-by category and product, with counts and linked resources. VM rows show platform and
-state, not pipeline or SSH actions. Unclassified resources have a fallback section. The product's
-link opens the full list; **Browse All Resources** opens the searchable inventory.
+A pale-blue welcome panel pairs the greeting and **Launch a Product** with a decorative transit
+map. **Your Resources** groups the visible catalog into product panels. Each is collapsed by default,
+with an icon, product name and resource count. Open a panel via its heading button to reveal a
+linked list and the product-page shortcut. A VM row shows platform and state as chips; there is no
+pipeline or SSH action on Home. Unknown types go to **Other Resources**. On mobile, row metadata
+wraps under the resource name, and the product heading drops its description. **Browse All Resources**
+opens the searchable inventory.
 
 ### Virtual Machines
 

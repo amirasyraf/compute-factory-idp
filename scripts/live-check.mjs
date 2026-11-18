@@ -42,6 +42,13 @@ try {
     page.getByRole('heading', { name: 'Your Resources' }),
   ).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Compute' })).toBeVisible();
+  const vmPanel = page.getByRole('button', {
+    name: 'Virtual Machines',
+    exact: true,
+  });
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'false');
+  await vmPanel.click();
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'true');
   await page.getByRole('link', { name: 'View All Virtual Machines' }).click();
   await expect(
     page.getByRole('heading', { name: 'Virtual Machines' }),

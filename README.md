@@ -60,9 +60,11 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
    validate the selected release; the workflow provisions the newest bake of that release.
    Earlier steps are linked, the form's **Change** link restores the image selection, and old
    `/launch/vm-request[/<platform>]` links redirect.
-- `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` for the greeting and **Your Resources**.
-   It groups catalog-visible Resources by category/product, with counts and linked resource rows.
-   VM rows show platform and state. Unclassified catalog resources are listed under **Other Resources**.
+- `packages/app/src/modules/home/`: a centered `HomePageLayoutBlueprint` with a **Launch a Product**
+   shortcut and a resource explorer. Product panels show counts and start collapsed. Expand a panel
+   for resource links, VM platform and status, and a shortcut to the product page. Unclassified
+   catalog resources have an **Other Resources** panel. Home only loads the VM summary while the
+   VM panel is open and has rows.
 - `packages/app/src/products/VmProductPage.tsx`: **Virtual Machines** (`/products/compute/virtual-machines`)
    has status filters, each VM's pipeline and next action (SSH certificate or run), Demo Mode and a
    shortcut to VM platform selection. Home, the product page and Resources join `GET /api/vms/summary`
@@ -74,7 +76,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   "Failed at <stage>" / "<Action> failed" / "Needs attention" on failure. Otherwise the summary's
    health check decides: "Running", "Stopped", "Instance not found" (Virtual Machines has a Stopped filter). The time shown is
   absolute and labelled: "Ready since …" from `cf/ready-at`, otherwise "Requested …".
-   Home and Virtual Machines use the same full-width gutters as Resources.
+   Virtual Machines uses the same full-width gutters as Resources.
 - `plugins/cf-backend`: one backend package, registered against `auth`, `permission` and
   `scaffolder`, plus the `mock-rest` and `vms` plugins (Backstage extension points belong to separate plugin IDs).
   Implements password sign-in, the team policy, `cf:ssh:sign`, `cf:vm:dispatch` and `cf:vm:run`. The two VM

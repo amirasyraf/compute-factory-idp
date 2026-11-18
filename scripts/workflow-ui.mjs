@@ -1213,16 +1213,52 @@ try {
   await expect(
     page.getByRole('heading', { name: 'Other Resources' }),
   ).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: 'external-storage' }),
-  ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'spec-vm' })).toHaveAttribute(
+  const vmPanel = page.getByRole('button', {
+    name: 'Virtual Machines',
+    exact: true,
+  });
+  const otherPanel = page.getByRole('button', {
+    name: 'Other Resources',
+    exact: true,
+  });
+  const vmLink = page.getByRole('link', { name: /^spec-vm/ });
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'false');
+  await expect(vmPanel.getByText('1 resource', { exact: true })).toBeVisible();
+  await expect(vmLink).toHaveCount(0);
+  await capture('home-collapsed');
+  await vmPanel.focus();
+  await page.keyboard.press('Enter');
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'true');
+  await expect(vmLink).toHaveAttribute(
     'href',
     '/catalog/default/resource/spec-vm',
   );
+  await expect(vmLink.getByText('AWS', { exact: true })).toBeVisible();
+  await otherPanel.click();
+  await expect(
+    page.getByRole('link', { name: /^external-storage/ }),
+  ).toBeVisible();
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByLabel('Pipeline stages')).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Demo Mode' })).toHaveCount(0);
-  await capture('home');
+  await capture('home-expanded');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(
+    await page.locator('main').evaluate(el => el.scrollWidth <= el.clientWidth),
+  ).toBe(true);
+  await vmPanel.focus();
+  await page.keyboard.press('Space');
+  await expect(vmPanel).toHaveAttribute('aria-expanded', 'false');
+  await expect(vmLink).toHaveCount(0);
+  await vmPanel.click();
+  await expect(vmLink).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  listVms = [];
+  await page.goto(`${base}/`);
+  await vmPanel.click();
+  await expect(
+    page.getByText('No resources in this product yet.'),
+  ).toBeVisible();
   listVms = [vm];
   await page.getByRole('link', { name: 'View All Virtual Machines' }).click();
   await expect(page).toHaveURL(`${base}${vmProductPath}`);
@@ -1257,7 +1293,7 @@ try {
   await expect(page.getByText('No machines match this filter.')).toBeVisible();
   assertNoErrors(errors);
   console.log(
-    'HOME AND VM PRODUCT PASS: grouped resources lead to the VM page with pipeline, next action, demo controls and status filters (fixture APIs)',
+    'HOME AND VM PRODUCT PASS: independent product panels, keyboard and mobile controls, resource counts/rows and empty state, plus VM pipeline and filters (fixture APIs)',
   );
   await page.goto(prefilled);
   const card = name => page.getByRole('radio', { name });

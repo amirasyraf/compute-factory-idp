@@ -37,7 +37,7 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
   users actually use the VM (`ssh <user>@<ip>`, `ubuntu` for Ubuntu, with key + issued cert).
-- Core flows: sign in → Home (grouped resource overview) → Launch (category → product → platform → image release) → VM form → Launch → live VM run page →
+- Core flows: sign in → Home (expandable resource overview) → Launch (category → product → platform → image release) → VM form → Launch → live VM run page →
   VM entity page (live state, Connect, Activity, Configuration, Details) → open a browser terminal or
   get an SSH certificate, power actions, Modify form, OS updates, re-apply, destroy.
 - The Virtual Machines product page shows live VM state and pipelines across clouds. Resources defaults
