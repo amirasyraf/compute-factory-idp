@@ -1263,10 +1263,16 @@ try {
   );
   // Launch: product, platform and image cards, then the template with platform/OS prefilled.
   await page.goto(`${base}/`);
-  await page.getByRole('link', { name: 'Launch', exact: true }).click();
+  // The top bar's Launch (Home also has a Launch button).
+  await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link', { name: 'Launch', exact: true })
+    .click();
   await expect(page).toHaveURL(`${base}/launch`);
   await expect(
-    page.getByRole('link', { name: 'Create', exact: true }),
+    page
+      .getByRole('navigation', { name: 'Main' })
+      .getByRole('link', { name: 'Create', exact: true }),
   ).toHaveCount(0);
   await expect(
     page.getByRole('heading', { name: 'Launch a product' }),

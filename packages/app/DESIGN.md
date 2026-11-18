@@ -115,7 +115,7 @@ palette; `cf` and `vmColors` currently duplicate several values in code.
   completed/travelled track, current station, focus outline and input caret. BUI
   solid backgrounds and rings use the same blue.
 - **Deep line blue (`blueDark`)**: theme link/button hover and most owned primary
-  action hovers. The Resources Request VM button is an exception: its local hover
+  action hovers. The Resources Launch button is an exception: its local hover
   is `#0A52B8`, not the shared deep-blue value.
 
 ### Semantic
@@ -334,7 +334,7 @@ rules do not establish a verified contrast/accessibility conformance claim.
 
 ### Home
 
-Greeting and team/resource summary lead into Get SSH certificate and Request VM.
+Greeting and team/resource summary lead into Get SSH certificate and Launch.
 The ink-ruled count strip is itself the tablist/filter: All, In progress, Ready,
 Failed, Destroying. There is no separate filter-tab row or eyebrow above the
 greeting. Selected counts have a blue underline. A refresh note sits above the

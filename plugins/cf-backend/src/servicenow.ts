@@ -6,8 +6,15 @@ import {
 } from '@backstage/backend-plugin-api';
 import { Config } from '@backstage/config';
 import express from 'express';
+import { PLATFORMS } from './platforms';
 
-const sizePattern = /^([A-Z]{1,4}|[a-z][a-z0-9-]*\.[a-z0-9]+)$/;
+// A size letter or any platform's instance type (m7i.large, Standard_D2s_v6); spec.py is authoritative.
+const sizePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const validVm = (body: { platform?: unknown; os?: unknown }) =>
+  typeof body.platform === 'string' &&
+  PLATFORMS.includes(body.platform) &&
+  typeof body.os === 'string' &&
+  /^[a-z][a-z0-9-]{1,30}$/.test(body.os);
 
 // A stateless demo receiver, not a ServiceNow emulator or a ticket database.
 export const mockRestPlugin = createBackendPlugin({
@@ -60,8 +67,7 @@ export const mockRestPlugin = createBackendPlugin({
                     ),
               ) ||
               !/^[a-z][a-z0-9-]{2,20}$/.test(body.vmName) ||
-              body.platform !== 'aws' ||
-              body.os !== 'ubuntu' ||
+              !validVm(body) ||
               !sizePattern.test(body.size)
             ) {
               res.status(400).json({ error: 'Invalid mock VM request' });
@@ -136,8 +142,7 @@ export function createServiceNowClient(auth: AuthService, config: Config) {
   return async (body: ServiceNowRequest): Promise<string> => {
     if (
       !/^[a-z][a-z0-9-]{2,20}$/.test(body.vmName) ||
-      body.platform !== 'aws' ||
-      body.os !== 'ubuntu' ||
+      !validVm(body) ||
       !sizePattern.test(body.size)
     )
       throw new PermanentError('Invalid VM details for the ServiceNow request');

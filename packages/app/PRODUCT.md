@@ -45,9 +45,11 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 ## Capabilities and Constraints
 
 - Must keep password sign-in, team-scoped catalog, VM status card, standalone live run view,
-  templates (request, SSH cert, modify), VM day-2 actions, search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. The Create page
-  lists only "Request a VM"; the other templates act on an existing VM and open from the VM page or Home.
-  Running/stopped state comes from the IDP's periodic EC2 health check, never from desired configuration.
+  templates (request, SSH cert, modify), VM day-2 actions, search and user settings. Failed runs expose backend-authorized retry/skip; skipped work is not applied. Launch (top bar,
+  Home and Resources buttons) lists products (templates tagged `product`; today the VM), then platform and
+  image cards; the stock template list at `/create` shows only the VM template; the other templates act on
+  an existing VM and open from the VM page or Home.
+  Running/stopped state comes from the IDP's periodic health check of each cloud, never from desired configuration.
 - Customization only through official Backstage theming, extension overrides, blueprints and frontend
   modules. No forking or patching upstream plugins. Key pages (home, catalog list, VM page, request flow)
   may be rebuilt as custom pages composed from plugin building blocks.

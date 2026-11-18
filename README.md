@@ -58,7 +58,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   image is preselected), then **Continue** opens the template with
   `?formData={"compute":{"platform","os"}}`. Other products open their template directly. Each step
   has its own URL, so Back works; the step trail links to earlier steps. Home's and Resources'
-  Request VM buttons open the VM's platform step. The version is shown but not stored yet.
+  **Launch** buttons open the product step. The version is shown but not stored yet.
 - `packages/app/src/modules/home/`: a `HomePageLayoutBlueprint` layout that replaces the widget grid
   with the team's VMs: status counts as filters, and each VM's pipeline line and next action
   (Get SSH certificate when ready, View run while building or failed). Home and the Resources list
@@ -209,7 +209,7 @@ The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
 `app.extensions.page:home` mounts Home at `/`, rendered by the Compute Factory home layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
 `packages/app/src/CatalogPage.tsx` overrides `page:catalog` (in `App.tsx`) with a Compute Factory
-page shell: a "Resources" heading and Request VM button, with the stock `CatalogFilterLayout`,
+page shell: a "Resources" heading and Launch button, with the stock `CatalogFilterLayout`,
 the `catalog-filter` extension inputs (including `CatalogKindFilter`) and the stock `CatalogTable`
 for search, sorting and paging. When every listed entity is a VM, the table shows State and
 Pipeline (the `PipelineLine`, without labels) columns instead of System, Description and Tags;

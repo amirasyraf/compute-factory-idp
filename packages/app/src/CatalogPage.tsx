@@ -28,7 +28,8 @@ import {
 import { makeStyles } from '@material-ui/core';
 import AddIcon from '@material-ui/icons/Add';
 
-const REQUEST_VM = '/launch/vm-request';
+// Launch starts at the product cards; the IDP offers more than VMs.
+const LAUNCH = '/launch';
 const RunsContext = createContext<Record<string, RunView>>({});
 // Health check per VM name: absent = not known, null = no instance found in the VM's cloud.
 const ObservedContext = createContext<Record<string, ObservedVm | null>>({});
@@ -199,9 +200,9 @@ export function CatalogPage({
                   Each virtual machine with its state and pipeline position.
                 </div>
               </div>
-              <Link to={REQUEST_VM} className={classes.primary}>
+              <Link to={LAUNCH} className={classes.primary}>
                 <AddIcon />
-                Request VM
+                Launch
               </Link>
             </div>
             {error && (

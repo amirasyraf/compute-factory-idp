@@ -32,7 +32,8 @@ import AddIcon from '@material-ui/icons/Add';
 import VpnKeyOutlined from '@material-ui/icons/VpnKeyOutlined';
 import { DemoModePanel } from '../../DemoModePanel';
 
-const REQUEST_VM = '/launch/vm-request';
+// Launch starts at the product cards; the IDP offers more than VMs.
+const LAUNCH = '/launch';
 const SSH_CERT = '/create/templates/default/ssh-cert';
 
 type Filter =
@@ -597,9 +598,9 @@ export function HomePage() {
             <VpnKeyOutlined />
             Get SSH certificate
           </Link>
-          <Link to={REQUEST_VM} className={`${classes.btn} ${classes.primary}`}>
+          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
             <AddIcon />
-            Request VM
+            Launch
           </Link>
         </div>
       </div>
@@ -658,12 +659,12 @@ export function HomePage() {
         <div className={classes.empty}>
           <h2>No virtual machines yet</h2>
           <p>
-            Request one and follow its pipeline from ServiceNow request to
+            Launch one and follow its pipeline from ServiceNow request to
             Finalize.
           </p>
-          <Link to={REQUEST_VM} className={`${classes.btn} ${classes.primary}`}>
+          <Link to={LAUNCH} className={`${classes.btn} ${classes.primary}`}>
             <AddIcon />
-            Request VM
+            Launch
           </Link>
         </div>
       )}
