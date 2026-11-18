@@ -365,9 +365,10 @@ mise exec -- node .yarn/releases/yarn-4.13.0.cjs install --immutable
 ```
 
 Set `IDP_USERS_B64` in your shell using a throwaway password file for interactive local development.
-There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts temporary local backend and Caddy containers, checks
-readiness/org/locations/templates and the mock REST endpoint's authentication, and stops both; run it with the token
-in the environment after the image build. It uses SQLite and a dummy catalog-only
+There is no guest or GitHub sign-in provider. `scripts/smoke.mjs` starts temporary local backend
+and Caddy containers from the chosen image and its packaged proxy config, checks
+readiness/org/locations/templates and the mock REST endpoint's authentication, and stops both.
+Pass the image ID as `IDP_IMAGE` and the GitHub token in the environment. It uses SQLite and a dummy catalog-only
 static token and freshly generated throwaway login; the GitHub integration token is inherited by
 Docker through environment only. It exercises the real Caddy rewrite to the mock endpoint and its
 rejection of anonymous, catalog-token and user calls, without dispatching GHA. The orchestrator's
@@ -400,7 +401,8 @@ no VM is registered. No tokens or full request bodies are logged.
 Local development uses `computeFactory.mockServiceNowUrl` at `http://localhost:7007/api/mock-rest/servicenow`;
 production overrides it with the public HTTPS demo path.
 
-For interactive development:
+For UI iteration, leave the hot-reload dev server running and preview changes locally; you don't
+need to rebuild the production bundle for each edit:
 
 ```sh
 GITHUB_TOKEN="$(gh auth token)" NODE_OPTIONS=--no-node-snapshot \
@@ -416,21 +418,19 @@ without it they return "Azure is not configured" errors.
 
 ## Checks
 
-Run one heavy job at a time on the shared laptop, with a 3 GiB Node heap cap:
+Run one heavy job at a time on the shared laptop. Build once and test the same image you will deploy:
 
 ```sh
 export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
-mise exec -- node .yarn/releases/yarn-4.13.0.cjs tsc
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
-WORKFLOW_UI_URL=https://idp.amirasyraf.dev mise exec -- node scripts/workflow-ui.mjs
-CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../compute-factory/.poc-passwords | cut -d: -f2-)" \
-  mise exec -- node scripts/live-check.mjs
-GITHUB_TOKEN=build-only mise exec -- node .yarn/releases/yarn-4.13.0.cjs build:backend
-docker buildx build --platform linux/arm64 --load -t compute-factory-idp:latest .
-GITHUB_TOKEN="$(gh auth token)" mise exec -- node scripts/smoke.mjs
+image="$(./deploy/build.sh)"
+IDP_IMAGE="$image" GITHUB_TOKEN="$(gh auth token)" mise exec -- node scripts/smoke.mjs
+(cd ../compute-factory && ./poc deploy-idp "$image")
 ```
 
-Backend build bundles the frontend. The Dockerfile uses Backstage's host-build
+`deploy/build.sh` runs the immutable dependency install, type check, Backstage bundle, and image packaging.
+It prints timings to stderr and the full local Docker image ID to stdout. Backend build bundles the frontend.
+The Dockerfile uses Backstage's host-build
 skeleton/bundle approach and installs Linux-native production dependencies in
 the arm64 image; it never copies macOS node_modules. `openssh-client` is present.
 This POC does not use unit-test scaffolding. Verification uses static checks, the platform's existing
@@ -453,7 +453,12 @@ at 1440px and 390px widths during the same fixture smoke. Inspect the images, th
  gitignored `.poc-passwords`) and checks, read-only, the grouped Home, VM product page, both image
  pickers, form prefill, the request form's live AWS instance types and
 specs, that the newest own task page receives events by long polling, and that the newest visible VM
-run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy.
+run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy:
+
+```sh
+CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../compute-factory/.poc-passwords | cut -d: -f2-)" \
+  mise exec -- node scripts/live-check.mjs
+```
 
 ## Deploy
 
@@ -463,21 +468,26 @@ Copy `deploy/.env.example` to a gitignored file and fill the eight keys only:
 `POSTGRES_PASSWORD`, `BACKSTAGE_TOKEN`, `AWS_REGION`, `SSH_CA_SECRET_ID`, `AZURE_READER_SECRET_ID`.
 
 ```sh
-./deploy/deploy.sh <host> <env-file>
+./deploy/deploy.sh <host> <env-file> [<image-id>]
 ```
 
-This rebuilds locally for `linux/arm64` (type check in parallel with the bundle build) and starts
-the services in `/opt/idp`. The image is shipped through a `registry:2` service on the host,
+If no image ID is supplied, this builds one locally for `linux/arm64`. With an ID it does not install
+dependencies, bundle, or package the image again. It copies the Compose and Caddy files from the image,
+ships it through a `registry:2` service on the host,
 bound to `127.0.0.1:15000` there and reached through an SSH tunnel on local port 15000:
 `docker push` uploads only compressed layers the host lacks (usually just the app bundle), and the
-host pulls `localhost:15000/compute-factory-idp:latest`. Afterwards it garbage-collects untagged
-registry blobs and prunes unused host images. The first deploy to a new host sends every layer. Requires mise, Docker/buildx and the local
+host pulls `localhost:15000/compute-factory-idp:latest`. The rollout verifies the pulled and running image
+IDs match, reloads Caddy, and reports deployment timings. The first deployment to a new host sends all
+layers. Requires Docker, local Compose, and the local
 `~/.ssh/id_ed25519`. It is non-interactive, uses disposable-host SSH options
 without reading/writing known_hosts, and uploads `.env` with mode 0600.
 After `docker compose up` it runs `caddy reload`, because a running Caddy does not re-read its
 bind-mounted Caddyfile.
-The script fails immediately on a concurrent build lock instead of waiting.
-The orchestrator waits for cloud-init's `cf-idp-ready` marker first.
+Builds and deployments use separate local locks. A deploy and `./poc prune-idp-images` in the same
+checkout share a lock. The maintenance command pauses only the registry during collection, removes
+untagged registry data and dangling IDP images, and starts the registry again. Monitor disk usage and
+run it explicitly as needed; avoid running another deploy from a different checkout during maintenance.
+Only `./poc up` waits for cloud-init, configures DNS, and restores saved TLS storage.
 
 First deploy prerequisites owned by the orchestrator:
 

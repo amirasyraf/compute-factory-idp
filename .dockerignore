@@ -1,8 +1,14 @@
-.git
-.yarn/cache
-.yarn/install-state.gz
-node_modules
-packages/*/src
-packages/*/node_modules
-plugins
-*.local.yaml
+# The runtime image consumes prebuilt bundles, not the app/source tree or local files.
+**
+!.yarn/releases/yarn-4.13.0.cjs
+!.yarnrc.yml
+!package.json
+!yarn.lock
+!backstage.json
+!packages/backend/dist/skeleton.tar.gz
+!packages/backend/dist/bundle.tar.gz
+!app-config.yaml
+!app-config.production.yaml
+!catalog/**
+!deploy/docker-compose.yml
+!deploy/Caddyfile

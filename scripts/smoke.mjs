@@ -1,7 +1,8 @@
 // Run after the image build. No AWS calls or workflow dispatches.
 import { execFile, spawn } from 'node:child_process';
-import { writeFile, rm } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdtemp, realpath, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -15,7 +16,17 @@ const users = Buffer.from(
   )}`,
 ).toString('base64');
 
-const configPath = resolve('app-config.smoke.local.yaml');
+const { stdout: imageId } = await run('docker', [
+  'image',
+  'inspect',
+  '--format',
+  '{{.Id}}',
+  process.env.IDP_IMAGE ?? 'compute-factory-idp:latest',
+]);
+const image = imageId.trim();
+const scratch = await realpath(await mkdtemp(join(tmpdir(), 'cf-idp-smoke-')));
+const configPath = join(scratch, 'app-config.smoke.local.yaml');
+const caddyPath = join(scratch, 'Caddyfile');
 const port = 17007;
 const baseUrl = `http://localhost:${port}`;
 const proxyPort = 17008;
@@ -49,55 +60,58 @@ const config = {
     ].map(file => ({ type: 'file', target: `/app/catalog/${file}` })),
   },
 };
-// Contains only dummy local credentials, never the GitHub token.
-await writeFile(configPath, JSON.stringify(config), { mode: 0o644 });
-await run('docker', ['network', 'create', networkName]);
-const child = spawn(
-  'docker',
-  [
-    'run',
-    '--rm',
-    '--name',
-    containerName,
-    '--network',
-    networkName,
-    '--network-alias',
-    'backstage',
-    '--memory=2g',
-    '--cpus=2',
-    '-p',
-    `127.0.0.1:${port}:7007`,
-    '-p',
-    `127.0.0.1:${proxyPort}:${proxyPort}`,
-    '-e',
-    'GITHUB_TOKEN',
-    '-e',
-    'IDP_USERS_B64',
-    '-e',
-    'NODE_ENV=development',
-    '-v',
-    `${configPath}:/app/app-config.smoke.local.yaml:ro`,
-    'compute-factory-idp:latest',
-    'node',
-    'packages/backend',
-    '--config',
-    'app-config.yaml',
-    '--config',
-    '/app/app-config.smoke.local.yaml',
-  ],
-  {
-    stdio: ['ignore', 'inherit', 'inherit'],
-    env: { ...process.env, IDP_USERS_B64: users, NODE_ENV: 'development' },
-  },
-);
+let child;
+let done;
 let exited = false;
-const done = new Promise(resolveDone =>
-  child.once('exit', code => {
-    exited = true;
-    resolveDone(code);
-  }),
-);
 try {
+  // Contains only dummy local credentials, never the GitHub token.
+  await writeFile(configPath, JSON.stringify(config), { mode: 0o644 });
+  await run('docker', ['network', 'create', networkName]);
+  child = spawn(
+    'docker',
+    [
+      'run',
+      '--rm',
+      '--pull=never',
+      '--name',
+      containerName,
+      '--network',
+      networkName,
+      '--network-alias',
+      'backstage',
+      '--memory=2g',
+      '--cpus=2',
+      '-p',
+      `127.0.0.1:${port}:7007`,
+      '-p',
+      `127.0.0.1:${proxyPort}:${proxyPort}`,
+      '-e',
+      'GITHUB_TOKEN',
+      '-e',
+      'IDP_USERS_B64',
+      '-e',
+      'NODE_ENV=development',
+      '-v',
+      `${configPath}:/app/app-config.smoke.local.yaml:ro`,
+      image,
+      'node',
+      'packages/backend',
+      '--config',
+      'app-config.yaml',
+      '--config',
+      '/app/app-config.smoke.local.yaml',
+    ],
+    {
+      stdio: ['ignore', 'inherit', 'inherit'],
+      env: { ...process.env, IDP_USERS_B64: users, NODE_ENV: 'development' },
+    },
+  );
+  done = new Promise(resolveDone =>
+    child.once('exit', code => {
+      exited = true;
+      resolveDone(code);
+    }),
+  );
   let ready = false;
   for (let attempt = 0; attempt < 90; attempt++) {
     if (exited) throw new Error('Backend exited before readiness');
@@ -110,6 +124,11 @@ try {
     await delay(1000);
   }
   if (!ready) throw new Error('Backend readiness timed out');
+  await run('docker', [
+    'cp',
+    `${containerName}:/app/deploy/Caddyfile`,
+    caddyPath,
+  ]);
   await run('docker', [
     'run',
     '-d',
@@ -124,7 +143,7 @@ try {
     '-e',
     `IDP_DOMAIN=http://:${proxyPort}`,
     '-v',
-    `${resolve('deploy/Caddyfile')}:/etc/caddy/Caddyfile:ro`,
+    `${caddyPath}:/etc/caddy/Caddyfile:ro`,
     'caddy:2',
   ]);
   ready = false;
@@ -345,6 +364,7 @@ try {
   console.log(
     'SMOKE PASS',
     JSON.stringify({
+      image,
       readiness: 200,
       refs,
       platformTemplates,
@@ -359,14 +379,15 @@ try {
     );
 } finally {
   await run('docker', ['stop', '-t', '5', proxyName]).catch(() => {});
-  if (!exited)
+  if (child && !exited) {
     await run('docker', ['stop', '-t', '10', containerName]).catch(() => {});
-  await Promise.race([done, delay(10000)]);
-  if (!exited) {
-    await run('docker', ['rm', '-f', containerName]).catch(() => {});
-    child.kill('SIGKILL');
-    await done;
+    await Promise.race([done, delay(10000, undefined, { ref: false })]);
+    if (!exited) {
+      await run('docker', ['rm', '-f', containerName]).catch(() => {});
+      child.kill('SIGKILL');
+      await done;
+    }
   }
-  await rm(configPath, { force: true });
+  await rm(scratch, { recursive: true, force: true });
   await run('docker', ['network', 'rm', networkName]).catch(() => {});
 }

@@ -32,6 +32,7 @@ node_modules/
 .env.*
 !.env.example
 .build-lock/
+.deploy-lock/
 .verification/
 .playwright/
 .playwright-cli/
