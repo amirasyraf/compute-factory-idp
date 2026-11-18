@@ -25,13 +25,19 @@ mkdir "$lock" 2>/dev/null || { echo 'An IDP deploy or image maintenance is alrea
 ssh_opts=(-i "$HOME/.ssh/id_ed25519" -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
 target="ubuntu@$host"
 container=""
+socket_dir=""
 cleanup() {
   if [[ -n "$container" ]]; then docker rm "$container" >/dev/null 2>&1 || true; fi
-  if [[ -S "$lock/tunnel" ]]; then ssh -S "$lock/tunnel" -O exit "$target" 2>/dev/null || true; fi
-  rm -f "$lock/docker-compose.yml" "$lock/Caddyfile" "$lock/tunnel"
+  if [[ -n "$socket_dir" && -S "$socket_dir/s" ]]; then ssh -S "$socket_dir/s" -O exit "$target" 2>/dev/null || true; fi
+  if [[ -n "$socket_dir" ]]; then rm -rf "$socket_dir"; fi
+  rm -f "$lock/docker-compose.yml" "$lock/Caddyfile"
   rmdir "$lock"
 }
 trap cleanup EXIT
+# Unix socket paths are limited to 104 bytes on macOS, and ssh appends a random suffix while
+# creating one. Keep the tunnel's control socket short and independent of the checkout location.
+socket_dir=$(mktemp -d /tmp/cf-idp.XXXXXX)
+tunnel="$socket_dir/s"
 
 if [[ "$prune" == true ]]; then
   ssh "${ssh_opts[@]}" "$target" bash -s <<'REMOTE'
@@ -72,7 +78,7 @@ ssh "${ssh_opts[@]}" "$target" 'umask 077; cat > /opt/idp/.env' < "$env_file"
 ssh "${ssh_opts[@]}" "$target" 'cd /opt/idp && docker compose up -d registry' </dev/null
 echo "Prepare deployment: $((SECONDS - start))s"
 start=$SECONDS
-ssh "${ssh_opts[@]}" -M -S "$lock/tunnel" -o ExitOnForwardFailure=yes -f -N \
+ssh "${ssh_opts[@]}" -M -S "$tunnel" -o ExitOnForwardFailure=yes -f -N \
   -L 127.0.0.1:15000:127.0.0.1:15000 "$target"
 registry_ready=false
 for _ in $(seq 1 30); do
@@ -82,7 +88,7 @@ done
 [[ "$registry_ready" == true ]] || { echo 'IDP registry not ready through SSH tunnel' >&2; exit 1; }
 docker tag "$image" localhost:15000/compute-factory-idp:latest
 docker push localhost:15000/compute-factory-idp:latest
-ssh -S "$lock/tunnel" -O exit "$target" 2>/dev/null
+ssh -S "$tunnel" -O exit "$target" 2>/dev/null
 echo "Upload artifact: $((SECONDS - start))s"
 start=$SECONDS
 ssh "${ssh_opts[@]}" "$target" bash -s -- "$image" <<'REMOTE'
