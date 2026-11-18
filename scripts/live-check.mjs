@@ -17,6 +17,17 @@ try {
   });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
+  // VM rows can fetch these before the form mounts, and the form reuses that response.
+  let sizesResult;
+  page.on('response', response => {
+    const url = new URL(response.url());
+    if (
+      url.pathname === '/api/vm-sizes/sizes' &&
+      url.searchParams.get('platform') === 'aws'
+    ) {
+      sizesResult = response;
+    }
+  });
 
   await page.goto(base);
   await page.locator('input[name=username]').fill(user);
@@ -59,15 +70,13 @@ try {
     }
   }
   // Real vm-sizes endpoint: AWS sizes.json from GitHub plus live EC2 specs.
-  const sizesResponse = page.waitForResponse(response =>
-    response.url().includes('/api/vm-sizes/sizes?platform=aws'),
-  );
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByText('Ubuntu 26.04', { exact: true })).toBeVisible();
   console.log(
     'PRODUCT UI PASS: grouped Home, Virtual Machines, AWS and Azure image selection and form prefill',
   );
-  const sizes = await (await sizesResponse).json();
+  await expect.poll(() => Boolean(sizesResult), { timeout: 30000 }).toBe(true);
+  const sizes = await sizesResult.json();
   if (sizes.error) throw new Error(`vm-sizes error: ${sizes.error}`);
   for (const item of sizes.sizes) {
     if (!item.specs?.vcpus || !item.specs?.memoryMiB)
