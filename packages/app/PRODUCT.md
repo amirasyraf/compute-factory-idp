@@ -9,7 +9,7 @@ web
 ## Users
 
 - **Team engineers (primary).** Members of product teams (currently `alpha`, `bravo`) who sign in with a
-  username and password, request a VM through a form, watch it being built, fetch a 12-hour SSH user
+  username and password, launch a VM (Launch: product, platform and image cards, then a form), watch it being built, fetch a 12-hour SSH user
   certificate and connect from their terminal, then manage it from its page: start, stop, reboot,
   modify (size, software install/uninstall, AD join), apply OS updates, re-apply configuration or destroy.
   They see only their own team's VMs.
@@ -35,8 +35,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 ## Operating Context
 
 - Built on Backstage 1.56 (new frontend system). The web app is the only surface; the terminal is where
-  users actually use the VM (`ssh ubuntu@<ip>` with key + issued cert).
-- Core flows: sign in → home → request VM (Scaffolder template form) → Create → live VM run page →
+  users actually use the VM (`ssh <user>@<ip>`, `ubuntu` for Ubuntu, with key + issued cert).
+- Core flows: sign in → home → Launch (product → platform → image cards) → VM form → Launch → live VM run page →
   VM entity page (live state, Connect, Activity, Configuration, Details) → open a browser terminal or
   get an SSH certificate, power actions, Modify form, OS updates, re-apply, destroy.
 - Catalog defaults to the `Resource` kind; normal users see only Resource. Search covers the catalog.
@@ -56,8 +56,9 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 - Light mode only for now; dark mode is not required.
 - The frontend mixes MUI v4 (`@material-ui/*`, most Backstage plugins) and `@backstage/ui` (BUI); a
   consistent look must cover both.
-- POC scope today: Ubuntu on AWS only. Long-term target includes Windows, Azure, vSphere and possibly more
-  resource types, so the design should not assume VMs are the only thing forever.
+- POC scope today: Ubuntu on AWS and Azure (vSphere shown as "Coming soon"). Long-term target includes
+  Windows, vSphere and more products than VMs, so the design does not assume VMs are the only thing:
+  Launch lists products and platforms from data.
 - Billing fields are self-reported tags, not billing authorization. Modify uninstalls unchecked catalog
   software (package data and configuration files are kept).
 
