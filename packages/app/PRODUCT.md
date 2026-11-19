@@ -69,8 +69,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 ## Brand Commitments
 
 - Name: **Vendy**. Keep the existing mark, palette, and type for the rename.
-  The stock Backstage logo and sidebar have been replaced by a top bar with the Vendy
-  transit mark.
+  The top bar, browser tab, Safari pinned tab, and installed web app use the Vendy transit mark.
+  Keep the icon assets in `public/` in sync with `src/modules/nav/Mark.tsx`.
 
 ## Evidence on Hand
 

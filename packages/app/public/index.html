@@ -18,7 +18,6 @@
       crossorigin="use-credentials"
     />
     <link rel="icon" href="<%= publicPath %>/favicon.ico" />
-    <link rel="shortcut icon" href="<%= publicPath %>/favicon.ico" />
     <link
       rel="apple-touch-icon"
       sizes="180x180"
@@ -37,9 +36,15 @@
       href="<%= publicPath %>/favicon-16x16.png"
     />
     <link
+      rel="icon"
+      type="image/svg+xml"
+      sizes="any"
+      href="<%= publicPath %>/favicon.svg"
+    />
+    <link
       rel="mask-icon"
       href="<%= publicPath %>/safari-pinned-tab.svg"
-      color="#5bbad5"
+      color="#0B5FD3"
     />
     <title><%= config.getOptionalString('app.title') ?? 'Vendy' %></title>
   </head>
