@@ -13,7 +13,11 @@ import {
   useParams,
   useSearchParams,
 } from 'react-router-dom';
-import { usePlatforms, vmColors } from '@internal/plugin-vm-status';
+import {
+  useImageAvailability,
+  usePlatforms,
+  vmColors,
+} from '@internal/plugin-vm-status';
 import { errorMessage } from '../clientLog';
 import {
   categories,
@@ -84,6 +88,13 @@ const useStyles = makeStyles(theme => ({
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
+  imageUnavailable: {
+    cursor: 'not-allowed',
+    background: theme.palette.action.disabledBackground,
+    '& $name': { color: theme.palette.text.secondary },
+    '&:hover': { borderColor: theme.palette.divider },
+  },
+  imageText: { display: 'flex', flexDirection: 'column' },
   radio: { accentColor: vmColors.blue, width: 17, height: 17, margin: 0 },
   actions: { display: 'flex', gap: 16, alignItems: 'center', marginTop: 28 },
 }));
@@ -318,6 +329,7 @@ function Images({
   const platform = platforms?.find(
     item => item.id === platformId && item.available,
   );
+  const availability = useImageAvailability(platform?.id);
   const [imageQuery, setImageQuery] = useSearchParams();
   const choice = imageQuery.get('image');
   const options =
@@ -327,11 +339,20 @@ function Images({
         version,
         label: `${os.label} ${version}`,
         key: `${os.id}:${version}`,
+        available:
+          availability?.some(
+            item =>
+              item.os === os.id &&
+              item.version === version &&
+              item.available === true,
+          ) === true,
       })),
     ) ?? [];
   const selected =
-    options.find(image => image.key === choice) ??
-    (options.length === 1 ? options[0] : undefined);
+    options.find(image => image.available && image.key === choice) ??
+    (choice === null && options.length === 1 && options[0].available
+      ? options[0]
+      : undefined);
   return (
     <Shell step={3} back={back} title="Choose an Image">
       <p className={classes.sub}>
@@ -360,18 +381,33 @@ function Images({
               key={image.key}
               className={`${classes.card} ${classes.image} ${
                 selected?.key === image.key ? classes.selected : ''
-              }`}
+              } ${image.available ? '' : classes.imageUnavailable}`}
             >
               <input
                 type="radio"
                 name="image"
                 className={classes.radio}
                 checked={selected?.key === image.key}
+                disabled={!image.available}
+                aria-label={image.label}
+                aria-describedby={
+                  image.available ? undefined : `availability-${image.key}`
+                }
                 onChange={() =>
                   setImageQuery({ image: image.key }, { replace: true })
                 }
               />
-              <span className={classes.name}>{image.label}</span>
+              <span className={classes.imageText}>
+                <span className={classes.name}>{image.label}</span>
+                {!image.available && (
+                  <span
+                    className={classes.soon}
+                    id={`availability-${image.key}`}
+                  >
+                    {availability ? 'Not available' : 'Checking availability…'}
+                  </span>
+                )}
+              </span>
             </label>
           ))}
         </div>

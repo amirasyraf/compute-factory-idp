@@ -173,6 +173,49 @@ export function usePlatforms(): PlatformInfo[] | undefined {
     ?.platforms;
 }
 
+type ImageAvailability = { os: string; version: string; available: boolean };
+
+/** Refresh only while the launch image picker is open. Unknown images are not selectable. */
+export function useImageAvailability(platform: string | undefined) {
+  const discovery = useApi(discoveryApiRef);
+  const fetchApi = useApi(fetchApiRef);
+  const [state, setState] = useState<{
+    platform: string;
+    images: ImageAvailability[];
+  }>();
+  useEffect(() => {
+    if (!platform) return undefined;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    async function refresh(id: string) {
+      let images: ImageAvailability[] = [];
+      try {
+        const base = await discovery.getBaseUrl('vm-sizes');
+        const response = await fetchApi.fetch(
+          `${base}/image-availability${query(id)}`,
+          { signal: controller.signal },
+        );
+        if (response.ok) {
+          const result = (await response.json()).images;
+          if (Array.isArray(result)) images = result;
+        }
+      } catch {
+        // Fail closed rather than retaining a stale positive result.
+      }
+      if (!controller.signal.aborted) {
+        setState({ platform: id, images });
+        timer = setTimeout(() => void refresh(id), 20_000);
+      }
+    }
+    void refresh(platform);
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [discovery, fetchApi, platform]);
+  return state?.platform === platform ? state?.images : undefined;
+}
+
 const fallbackLabels: Record<string, string> = { aws: 'AWS', azure: 'Azure' };
 /** Display name of a platform, e.g. "Azure". */
 export function platformLabel(

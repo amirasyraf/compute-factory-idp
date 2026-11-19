@@ -59,7 +59,9 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 - `packages/app/src/launch/`: **Launch** (`/launch`) starts with product categories, then products
    whose registered Scaffolder templates are tagged `product`. At `/launch/compute/virtual-machines`,
    platform cards show provider names (vSphere is marked **Coming Soon**). The next step shows
-   selectable OS/release cards from `GET /api/vm-sizes/platforms`; the only choice is preselected.
+   OS/release cards from `GET /api/vm-sizes/platforms`. `GET /api/vm-sizes/image-availability`
+   checks the cloud separately; missing, unready, or unverifiable releases are disabled.
+   A sole configured release is preselected only when available.
    **Continue** prefills `compute.{platform,os,imageVersion}`. Admission and the platform workflow
    validate the selected release; the workflow provisions the newest bake of that release.
    Earlier steps are linked, the form's **Change** link restores the image selection, and old
@@ -164,16 +166,22 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   retry with 1/2/5/10 s backoff and then surface "Task updates failed…" on the page; the page hook
   reconnects from the last seen event. **Revert to SSE** by deleting the `api:scaffolder` override in
   `App.tsx` and this file.
-- **Platforms, VM sizes and instance types** (`plugins/cf-backend/src/{platforms,vmSizes,azure}.ts`,
+- **Platforms, images, VM sizes and instance types** (`plugins/cf-backend/src/{platforms,imageAvailability,vmSizes,azure}.ts`,
   `packages/app/src/VmComputePicker.tsx`, `plugins/vm-status/src/vmSizes.ts`), signed-in users only;
   CONTRACTS.md §10a:
   - Each platform's `terraform/platforms/<p>/{platform.json,sizes.json}` is read from the platform repo's
     `main` through the GitHub API (cached 5 minutes, last good copy kept during outages). `PLATFORMS`
     (`aws`, `azure`) is the list the IDP can read specs and health for; `COMING_SOON` adds vSphere.
-  - `GET /api/vm-sizes/platforms`: label, availability, images (`os`: id, label, versions, family,
+  - `GET /api/vm-sizes/platforms`: label, platform support, configured releases (`os`: id, label, versions, family,
     minMemoryMiB), tag
     rules and `staticPublicIp` per platform, for Launch, the tags editor and the stop/start wording
-    (Azure keeps its address; AWS gets a new one).
+     (Azure keeps its address; AWS gets a new one).
+  - `GET /api/vm-sizes/image-availability?platform=<p>` checks each configured release when the
+    image picker opens and every 20 seconds while it stays open. The newest matching AWS AMI
+    must be available; the latest eligible Azure gallery version must be provisioned and
+    replicated to the launch region. Unverifiable images are disabled rather than using stale
+    results. New `/api/vms/requests` recheck before reserving a VM or creating a run; retries of
+    already accepted requests still return the original run.
   - `GET /api/vm-sizes/sizes?platform=<p>&os=<os>` (defaults `aws`, Linux): XS-L of the OS family's map
     (Windows sizes are larger) with vCPU, memory, architecture and network, plus `family` and `minMemoryMiB`. AWS from `ec2:DescribeInstanceTypes` (cached 1 hour); Azure from the Resource SKUs API,
     with `quotaOk`. Without cloud access it returns an `error` and types without specs.

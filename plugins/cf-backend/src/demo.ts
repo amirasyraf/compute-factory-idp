@@ -2,12 +2,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { DatabaseService, LoggerService } from '@backstage/backend-plugin-api';
 import YAML from 'yaml';
 import { github, mapConcurrent, message } from './github';
+import { imageAvailable } from './imageAvailability';
 import { Orchestrator, Run, RunConflict } from './orchestrator';
 import {
   PLATFORMS,
   allSizeTypes,
   imageVersions,
   loadPlatform,
+  Platform,
   refuseSoftware,
 } from './platforms';
 
@@ -502,15 +504,16 @@ export function createDemo(options: {
         status: 400,
         body: { error: 'Choose a supported VM platform and image' },
       };
-    let versions: string[];
+    let platformInfo: Platform;
     try {
-      versions = imageVersions(await loadPlatform(platform, logger), os);
+      platformInfo = await loadPlatform(platform, logger);
     } catch (error) {
       return {
         status: 503,
         body: { error: `Image catalog unavailable: ${message(error)}` },
       };
     }
+    const versions = imageVersions(platformInfo, os);
     // Old, already open request forms omitted the release. Only infer it if unambiguous.
     const version =
       imageVersion === undefined && versions.length === 1
@@ -521,6 +524,26 @@ export function createDemo(options: {
         status: 400,
         body: { error: 'Choose an image version offered on this platform' },
       };
+    try {
+      if (!(await imageAvailable(platformInfo, os, version)))
+        return {
+          status: 409,
+          body: {
+            error:
+              'This image is not available to launch yet. Choose another image or try again later.',
+          },
+        };
+    } catch (error) {
+      logger.warn(
+        `Image availability: ${platform}/${os}/${version}: ${message(error)}`,
+      );
+      return {
+        status: 503,
+        body: {
+          error: 'Could not verify image availability. Try again shortly.',
+        },
+      };
+    }
     spec.compute.imageVersion = version;
     // The register stage would reject software the OS does not offer, after the run started.
     const software = spec.configuration?.software;

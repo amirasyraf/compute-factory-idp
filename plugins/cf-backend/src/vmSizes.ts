@@ -14,6 +14,7 @@ import {
 import express from 'express';
 import { ARM_VERSIONS, armList, azureReader } from './azure';
 import { message } from './github';
+import { imageAvailable } from './imageAvailability';
 import {
   COMING_SOON,
   imageVersions,
@@ -382,6 +383,35 @@ export const vmSizesPlugin = createBackendPlugin({
         };
 
         const router = express.Router();
+        router.get('/image-availability', async (req, res, next) => {
+          try {
+            await httpAuth.credentials(req, { allow: ['user'] });
+            const id = platformOf(req, res);
+            if (!id) return;
+            const platform = await loadPlatform(id, logger);
+            const images = await Promise.all(
+              Object.keys(platform.os).flatMap(os =>
+                imageVersions(platform, os).map(async version => ({
+                  os,
+                  version,
+                  available: await imageAvailable(platform, os, version).catch(
+                    error => {
+                      logger.warn(
+                        `Image availability: ${id}/${os}/${version}: ${message(
+                          error,
+                        )}`,
+                      );
+                      return false;
+                    },
+                  ),
+                })),
+              ),
+            );
+            res.set('Cache-Control', 'no-store').json({ images });
+          } catch (error) {
+            next(error);
+          }
+        });
         router.get('/platforms', async (req, res, next) => {
           try {
             await httpAuth.credentials(req, { allow: ['user'] });

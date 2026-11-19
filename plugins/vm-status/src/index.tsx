@@ -47,6 +47,7 @@ export {
   useDemoRestriction,
   useInstanceTypeCatalog,
   usePlatforms,
+  useImageAvailability,
   useVmSizeText,
   useVmSizes,
   type CatalogInstanceType,

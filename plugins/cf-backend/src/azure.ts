@@ -86,18 +86,34 @@ export function azureReader(): Promise<Reader> {
 }
 
 /** Every item of a subscription-scoped ARM list (`path` after `/subscriptions/<id>`), following `nextLink`. */
-export async function armList<T>(path: string): Promise<T[]> {
+async function armRead<T>(
+  path: string,
+  list: false,
+  signal: AbortSignal,
+): Promise<T>;
+async function armRead<T>(
+  path: string,
+  list: true,
+  signal?: AbortSignal,
+): Promise<T[]>;
+async function armRead<T>(
+  path: string,
+  list: boolean,
+  signal?: AbortSignal,
+): Promise<T | T[]> {
   const { credential, subscriptionId } = await azureReader();
   const items: T[] = [];
   let url: string | undefined = `${arm}/subscriptions/${subscriptionId}${path}`;
   for (let page = 0; url; page++) {
     if (page >= 100 || !url.startsWith(`${arm}/`))
       throw new Error('Unexpected ARM pagination');
-    const token = await credential.getToken(`${arm}/.default`);
+    const token = await credential.getToken(`${arm}/.default`, {
+      abortSignal: signal,
+    });
     if (!token) throw new Error('No Azure access token');
     const response: Response = await fetch(url, {
       headers: { Authorization: `Bearer ${token.token}` },
-      signal: AbortSignal.timeout(30000),
+      signal: signal ?? AbortSignal.timeout(30000),
       redirect: 'error',
     });
     const body = (await response.json().catch(() => ({}))) as {
@@ -113,8 +129,15 @@ export async function armList<T>(path: string): Promise<T[]> {
           response.headers.get('x-ms-request-id') ?? 'unknown'
         })`,
       );
+    if (!list) return body as T;
     items.push(...(body.value ?? []));
     url = body.nextLink;
   }
   return items;
 }
+
+export const armList = <T>(path: string, signal?: AbortSignal) =>
+  armRead<T>(path, true, signal);
+
+export const armGet = <T>(path: string, signal: AbortSignal) =>
+  armRead<T>(path, false, signal);

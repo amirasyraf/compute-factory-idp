@@ -373,9 +373,11 @@ settings, including when the separate settings icon is hidden.
 
 Launch is a card flow with a 32px title, muted subtitle and linked step trail: Product Type › Product ›
 Platform › Image › Configure. Platform cards use provider names without OS copy; vSphere is marked
-**Coming Soon**. Each image card represents one OS release and remains enabled even when it is the only
-choice. The selected card gets a blue border and pale blue fill. **Continue** opens the form with the
-selected image version; **Change** returns to the selected image.
+**Coming Soon**. Each image card represents one configured OS release. Cards stay disabled while
+availability is checked and are greyed out with **Not available** when the cloud image isn't ready
+or cannot be verified. A sole configured image is preselected only when it's available. The picker
+refreshes availability while open; **Continue** opens the form only for an available selection.
+**Change** returns to the selected image if it is still available.
 
 Resources owns its title/action shell but composes stock catalog filters, table,
 search, sorting and pagination. Resource lists add Product; nonempty all-VM results also show

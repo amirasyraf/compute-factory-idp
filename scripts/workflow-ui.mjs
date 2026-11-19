@@ -337,6 +337,20 @@ try {
       json = resources
         ? { items: listVms, totalItems: listVms.length, pageInfo: {} }
         : { items: [], totalItems: 0, pageInfo: {} };
+    } else if (path.endsWith('/vm-sizes/image-availability')) {
+      const cloud = new URL(route.request().url()).searchParams.get('platform');
+      json = {
+        images:
+          cloud === 'azure'
+            ? [
+                { os: 'ubuntu', version: '26.04', available: true },
+                { os: 'windows', version: '2025', available: true },
+              ]
+            : [
+                { os: 'ubuntu', version: '26.04', available: false },
+                { os: 'ubuntu', version: '24.04', available: true },
+              ],
+      };
     } else if (path.endsWith('/vm-sizes/platforms')) {
       const ubuntu = [
         { id: 'ubuntu', label: 'Ubuntu', versions: ['26.04'], family: 'linux' },
@@ -1426,7 +1440,15 @@ try {
   await capture('launch-platform');
   await page.getByRole('link', { name: 'AWS', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
-  await expect(page.getByRole('radio', { name: 'Ubuntu 26.04' })).toBeEnabled();
+  await expect(
+    page.getByRole('radio', { name: 'Ubuntu 26.04' }),
+  ).toBeDisabled();
+  await expect(page.getByText('Not available', { exact: true })).toBeVisible();
+  await page.goto(`${base}${vmLaunchPath}/aws?image=ubuntu%3A26.04`);
+  await expect(
+    page.getByRole('radio', { name: 'Ubuntu 26.04' }),
+  ).not.toBeChecked();
+  await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
   await page.getByRole('radio', { name: 'Ubuntu 24.04' }).check();
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByText('Ubuntu 24.04', { exact: true })).toBeVisible();
@@ -1666,9 +1688,7 @@ try {
     'ROW WORDING PASS: provision, modify, power, destroy, retrying, failed and needs-attention labels; Running/Stopped from the health check; absolute ready/request times on Virtual Machines and Resources',
   );
   await page.goto(`${base}/`);
-  const banner = page.getByText(
-    'A new version of Vendy is available.',
-  );
+  const banner = page.getByText('A new version of Vendy is available.');
   const running = await page.evaluate(
     () =>
       /\/static\/main\.([0-9a-f]{8,})\.js/.exec(
