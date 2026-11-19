@@ -8,11 +8,11 @@ web
 
 ## Users
 
-- **Team engineers (primary).** Members of product teams (currently `alpha`, `bravo`) who sign in with a
+- **Team engineers (primary).** Members of product teams who sign in with a
   username and password, launch a VM (Launch → Compute → Virtual Machines → platform → image → form), watch it being built, fetch a 12-hour SSH user
   certificate and connect from their terminal, then manage it from its page: start, stop, reboot,
   modify (size, software install/uninstall, AD join), apply OS updates, re-apply configuration or destroy.
-  They see only their own team's VMs.
+  The portal shows only VMs owned by their teams; it does not hide public Git inventory.
 - **Platform admins.** Members of `group:default/platform-admins` with global access, including the full
   catalog kind picker (users, groups, templates, locations).
 - **Stakeholders / leadership.** The IDP is a POC and must also demonstrate convincingly what a modern
@@ -68,7 +68,7 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 
 ## Brand Commitments
 
-- Name: **Vendy**. Keep the existing mark, palette, and type for the rename.
+- Name: **Vendy**. Use the mark, palette, and type in [DESIGN.md](DESIGN.md).
   The top bar, browser tab, Safari pinned tab, and installed web app use the Vendy transit mark.
   Keep the icon assets in `public/` in sync with `src/modules/nav/Mark.tsx`.
 

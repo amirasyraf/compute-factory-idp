@@ -389,7 +389,10 @@ and a ⋯ menu with Apply OS updates, Re-apply configuration and red Destroy VM)
 line with team, OS/platform and size. Every action except Modify opens a confirm dialog;
 Destroy requires typing the VM name. While a run is active, the provision is unfinished or
 no instance exists, only Destroy is enabled (disabled buttons say why in a tooltip); a
-stopped VM disables Reboot, Modify, OS updates and Re-apply ("Start the VM first").
+  stopped VM disables Reboot, Modify, OS updates and Re-apply ("Start the VM first").
+  A transitioning VM can still show some of these controls; the API rejects operations that
+  need a running VM when its observation is fresh. The OS-update confirmation currently says
+  Ubuntu even on Windows; the selected stage uses the correct guest updater.
 Section tabs appear only when there is more than one; otherwise a spacer is used.
 The stock About card is hidden only for VMs. The header and body share one poller per VM
 (`vmLive.ts`): the last 10 runs (`/runs?name=<vm>&limit=10`, every five seconds), the
@@ -496,8 +499,9 @@ Demo controls and the compute picker's restrictions discover `vms`, using
 - **Light only:** `theme:app/dark` is disabled in `app-config.yaml`. General
   settings intentionally shows only stock profile and identity cards, not theme
   selection or Pin Sidebar controls. No dark palette is defined here.
-- **No invented capabilities:** billing totals, Copy SSH and
-  real AD verification are not established UI capabilities. Demo quota is backend-owned;
+- **No invented capabilities:** billing totals, a bulk SSH action and real AD verification
+  are not established UI capabilities. The individual VM's Connect panel has a copyable SSH command.
+  Demo quota is backend-owned;
   manual retry/skip are exposed only through API action flags. Billing is explicitly
   self-reported; desired software is not a reconciled installed inventory.
 
