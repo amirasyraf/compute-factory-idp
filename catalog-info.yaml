@@ -1,8 +1,8 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: compute-factory
-  description: An example of a Backstage application.
+  name: vendy
+  description: Vendy's internal developer portal.
   # Example for optional annotations
   # annotations:
   #   github.com/project-slug: backstage/backstage

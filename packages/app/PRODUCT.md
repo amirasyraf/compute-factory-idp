@@ -20,7 +20,7 @@ web
 
 ## Product Purpose
 
-Compute Factory is an internal developer platform for self-service products across infrastructure platforms.
+Vendy is an internal developer platform for self-service products across infrastructure platforms.
 Virtual Machines is its first Compute product. A user requests a VM and the
 platform builds it the same way every time: golden image (bake) → Terraform provision → Ansible fry stages
 (baseline, software, AD join, access) → ready, with SSH access via CA-signed certificates. Success means a
@@ -68,8 +68,8 @@ live stage/attempt progress on a standalone run page and the VM's page. VM tasks
 
 ## Brand Commitments
 
-- Name: **Compute Factory**. No existing logo, colour, typeface or voice; identity is free to create.
-  The stock Backstage logo and sidebar have been replaced by a top bar with the Compute Factory
+- Name: **Vendy**. Keep the existing mark, palette, and type for the rename.
+  The stock Backstage logo and sidebar have been replaced by a top bar with the Vendy
   transit mark.
 
 ## Evidence on Hand

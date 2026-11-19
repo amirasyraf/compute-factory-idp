@@ -210,7 +210,7 @@ export const cfLightTheme = ThemeBlueprint.make({
   params: {
     theme: {
       id: 'light',
-      title: 'Compute Factory',
+      title: 'Vendy',
       variant: 'light',
       icon: <LightIcon />,
       Provider: ({ children }) => (

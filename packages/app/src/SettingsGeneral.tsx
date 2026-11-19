@@ -5,7 +5,7 @@ import {
 } from '@backstage/plugin-user-settings';
 import { Grid } from '@material-ui/core';
 
-// The stock General page adds Theme and Pin Sidebar toggles. Compute Factory is
+// The stock General page adds Theme and Pin Sidebar toggles. Vendy is
 // light-only with a top bar, so only profile and identity remain.
 export function SettingsGeneral() {
   return (

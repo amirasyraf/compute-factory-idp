@@ -158,7 +158,7 @@ export function PasswordSignInPage({ onSignInSuccess }: SignInPageProps) {
               component="h1"
               style={{ fontSize: 24, letterSpacing: '-0.015em' }}
             >
-              Compute Factory
+              Vendy
             </Typography>
             <Typography>Sign in with your username and password.</Typography>
             <form onSubmit={submit} autoComplete="off">

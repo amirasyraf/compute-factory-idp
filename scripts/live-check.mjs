@@ -1,7 +1,7 @@
 // Signed-in, read-only check of the deployed IDP with real backend data. Never submits a form,
 // dispatches a workflow or changes state. Credentials come from the orchestrator's gitignored
 // .poc-passwords (POC only), e.g.:
-//   CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../compute-factory/.poc-passwords | cut -d: -f2-)" \
+//   CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../vendy/.poc-passwords | cut -d: -f2-)" \
 //     mise exec -- node scripts/live-check.mjs
 import { chromium, expect } from '@playwright/test';
 

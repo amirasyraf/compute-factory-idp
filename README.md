@@ -1,4 +1,4 @@
-# Compute Factory IDP
+# Vendy IDP
 
 Backstage 1.56, scaffolded at the repository root with **the new frontend system**,
 Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
@@ -43,7 +43,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
     inspect) on VM pages; destroy remains the supported way to remove a VM.
 - `packages/app/src/SettingsGeneral.tsx`: overrides `sub-page:user-settings/general` with only the
   profile and identity cards (the app is light-only and has no sidebar to pin).
-- `packages/app/src/theme/`: the Compute Factory look (see `packages/app/DESIGN.md`). `cfTheme.tsx`
+- `packages/app/src/theme/`: the Vendy look (see `packages/app/DESIGN.md`). `cfTheme.tsx`
   replaces `theme:app/light` with a unified MUI v4/v5 theme (plain white page headers, no gradient
   banners); `global.css` sets BUI tokens, self-hosted fonts and browser surfaces. Dark mode is disabled
   with `theme:app/dark: false`.
@@ -202,7 +202,7 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
   - **New-version banner.** The app is a single page, so a tab opened before a deploy keeps the old
     bundle. Every 60 seconds and on tab focus, the tab fetches `index.html` (served `no-store`) and
     compares its `main.<hash>.js` with the bundle it is running. On a mismatch it shows "A new version
-    of Compute Factory is available. [Reload]". It never reloads by itself, so half-filled forms are
+    of Vendy is available. [Reload]". It never reloads by itself, so half-filled forms are
     safe. Disabled on the dev server, whose bundle has no hash.
   - **Browser error reporting.** Uncaught errors, unhandled rejections, exhausted task-update polling,
     identity load failures and stale bundles are POSTed to the `client-log` backend plugin, at most 30
@@ -233,8 +233,8 @@ Node 24 (`mise.toml`) and the scaffold's vendored Yarn 4.13.0.
 
 The default scaffolder fields, including `MyGroupsPicker`, remain intact. Search
 uses the catalog collator and PG engine (in-memory fallback for local SQLite).
-`app.extensions.page:home` mounts Home at `/`, rendered by the Compute Factory home layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
-`packages/app/src/CatalogPage.tsx` overrides `page:catalog` (in `App.tsx`) with a Compute Factory
+`app.extensions.page:home` mounts Home at `/`, rendered by the Vendy home layout. Catalog keeps its default `/catalog` route and defaults to **Resource**.
+`packages/app/src/CatalogPage.tsx` overrides `page:catalog` (in `App.tsx`) with a Vendy
  page shell: a "Resources" heading and Launch button, with the stock `CatalogFilterLayout`,
 the `catalog-filter` extension inputs (including `CatalogKindFilter`) and the stock `CatalogTable`
  for search, sorting and paging. Resource results include a Product column and can be filtered by Type.
@@ -445,7 +445,7 @@ export NODE_OPTIONS='--no-node-snapshot --max-old-space-size=3072'
 mise exec -- node .yarn/releases/yarn-4.13.0.cjs lint
 image="$(./deploy/build.sh)"
 IDP_IMAGE="$image" GITHUB_TOKEN="$(gh auth token)" mise exec -- node scripts/smoke.mjs
-(cd ../compute-factory && ./poc deploy-idp "$image")
+(cd ../vendy && ./poc deploy-idp "$image")
 ```
 
 `deploy/build.sh` runs the immutable dependency install, type check, Backstage bundle, and image packaging.
@@ -478,7 +478,7 @@ specs, that the newest own task page receives events by long polling, and that t
 run's page renders all its stages (read-only; it never presses Retry or Skip). Run it after every deploy:
 
 ```sh
-CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../compute-factory/.poc-passwords | cut -d: -f2-)" \
+CF_USER=user1 CF_PASSWORD="$(grep '^user1:' ../vendy/.poc-passwords | cut -d: -f2-)" \
   mise exec -- node scripts/live-check.mjs
 ```
 

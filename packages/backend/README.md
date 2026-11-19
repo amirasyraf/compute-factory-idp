@@ -1,6 +1,6 @@
-# Compute Factory backend
+# Vendy backend
 
-This package assembles the Compute Factory Backstage backend. Custom behavior lives in
+This package assembles the Vendy Backstage backend. Custom behavior lives in
 `plugins/cf-backend`; the runtime provides password authentication, team permissions,
 SSH certificate signing, and workflow progress streaming.
 

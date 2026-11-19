@@ -1,4 +1,4 @@
-export const repository = 'amirasyraf/compute-factory-platform';
+export const repository = 'amirasyraf/vendy-platform';
 const api = `https://api.github.com/repos/${repository}`;
 
 export class GitHubError extends Error {

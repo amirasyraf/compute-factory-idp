@@ -109,7 +109,7 @@ export function ClientMonitor() {
       color="primary.contrastText"
     >
       <Typography variant="body2">
-        A new version of Compute Factory is available.
+        A new version of Vendy is available.
       </Typography>
       <Button
         size="small"

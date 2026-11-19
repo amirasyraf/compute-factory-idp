@@ -1,12 +1,12 @@
 app:
-  title: Compute Factory
+  title: Vendy
   baseUrl: http://localhost:3000
   packages: all
   extensions:
     - page:home:
         config:
           path: /
-    # Light mode only: the Compute Factory theme replaces theme:app/light.
+    # Light mode only: the Vendy theme replaces theme:app/light.
     - theme:app/dark: false
     # VM pages carry owner, lifecycle and source in their own header; the
     # stock About card is kept for every other entity.
@@ -23,7 +23,7 @@ app:
           templateFilter:
             metadata.name: vm-request
 organization:
-  name: Compute Factory
+  name: Vendy
 computeFactory:
   mockServiceNowUrl: http://localhost:7007/api/mock-rest/servicenow
 backend:

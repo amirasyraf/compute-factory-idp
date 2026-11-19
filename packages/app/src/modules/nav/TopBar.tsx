@@ -212,10 +212,10 @@ function TopBar({ navItems }: NavContentComponentProps) {
       <RouterLink
         to="/"
         className={classes.brand}
-        aria-label="Compute Factory home"
+        aria-label="Vendy home"
       >
         <Mark />
-        <span>Compute Factory</span>
+        <span>Vendy</span>
       </RouterLink>
       <nav className={classes.nav} aria-label="Main">
         {links.map(link => (

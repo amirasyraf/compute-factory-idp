@@ -61,7 +61,7 @@ else
 fi
 [[ "$image" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Supply the full local image ID printed by deploy/build.sh' >&2; exit 2; }
 metadata=$(docker image inspect --format '{{.Os}}/{{.Architecture}} {{index .Config.Labels "com.compute-factory.artifact"}}' "$image")
-[[ "$metadata" == 'linux/arm64 idp' ]] || { echo 'Expected a Compute Factory IDP linux/arm64 artifact' >&2; exit 2; }
+[[ "$metadata" == 'linux/arm64 idp' ]] || { echo 'Expected a Vendy IDP linux/arm64 artifact' >&2; exit 2; }
 
 start=$SECONDS
 # Use the files from the same artifact, not the possibly changed checkout. No container is started.

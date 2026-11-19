@@ -1,5 +1,5 @@
 ---
-name: Compute Factory
+name: Vendy
 description: A light-only Backstage developer platform whose VM build pipeline is a transit line.
 colors:
   ink: '#111316'
@@ -73,7 +73,7 @@ components:
     height: '34px'
 ---
 
-# Design System: Compute Factory
+# Design System: Vendy
 
 ## Overview
 

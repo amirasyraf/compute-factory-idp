@@ -103,7 +103,7 @@ const useStyles = makeStyles({
   column: { display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 },
 });
 
-/** Compute Factory header for VM entity pages: name, live state and day-2 actions. */
+/** Vendy header for VM entity pages: name, live state and day-2 actions. */
 export function VmHeaderLayout({ tabs, activeTabId }: EntityHeaderLayoutProps) {
   const classes = useStyles();
   const { entity } = useAsyncEntity();

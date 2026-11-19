@@ -5,7 +5,7 @@ primary_target: "src/App.tsx"
 related_targets: ["src/modules/home/homeModule.tsx","src/modules/nav/Sidebar.tsx","src/WorkflowTasks.tsx"]
 ---
 
-# Compute Factory app shell and VM surfaces
+# Vendy app shell and VM surfaces
 
 Scope: the whole signed-in app (shell, home, resources list, VM entity page, request/task pages), plus sign-in. Mode: Operate.
 Audience: team engineers requesting and operating VMs; platform admins; stakeholders seeing a modern IDP.

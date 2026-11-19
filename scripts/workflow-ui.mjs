@@ -1667,7 +1667,7 @@ try {
   );
   await page.goto(`${base}/`);
   const banner = page.getByText(
-    'A new version of Compute Factory is available.',
+    'A new version of Vendy is available.',
   );
   const running = await page.evaluate(
     () =>

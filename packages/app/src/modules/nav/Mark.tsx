@@ -1,4 +1,4 @@
-/** Compute Factory mark: a short line with three stations, the last one reached. */
+/** Vendy mark: a short line with three stations, the last one reached. */
 export function Mark({ size = 30 }: { size?: number }) {
   return (
     <svg
